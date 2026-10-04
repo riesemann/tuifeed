@@ -3,7 +3,7 @@
 use crossterm::event::{KeyCode, KeyModifiers};
 
 use crate::config::Config;
-use crate::feed::Feed;
+use crate::feed::{Article, Feed};
 
 /// Which column currently holds keyboard focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,7 +57,7 @@ impl FeedSlot {
     }
 
     /// The articles, if the feed has been loaded.
-    pub fn articles(&self) -> &[crate::feed::Article] {
+    pub fn articles(&self) -> &[Article] {
         match &self.state {
             FeedState::Loaded(feed) => &feed.articles,
             _ => &[],
@@ -84,6 +84,12 @@ pub struct App {
     pub config: Config,
     /// One slot per configured source.
     pub feeds: Vec<FeedSlot>,
+    /// The cursor in the feed list.
+    pub selected_feed: usize,
+    /// The cursor in the article list.
+    pub selected_article: usize,
+    /// The feed whose articles the right column shows (set by Enter).
+    pub open_feed: Option<usize>,
 }
 
 impl Default for App {
@@ -109,6 +115,9 @@ impl App {
             focus: Focus::Feeds,
             config,
             feeds,
+            selected_feed: 0,
+            selected_article: 0,
+            open_feed: None,
         }
     }
 
@@ -134,6 +143,55 @@ impl App {
         self.focus = self.focus.other();
     }
 
+    /// Focus the left column.
+    pub fn focus_feeds(&mut self) {
+        self.focus = Focus::Feeds;
+    }
+
+    /// Focus the right column.
+    pub fn focus_articles(&mut self) {
+        self.focus = Focus::Articles;
+    }
+
+    /// The articles shown in the right column (of the opened feed).
+    pub fn articles(&self) -> &[Article] {
+        self.open_feed
+            .and_then(|index| self.feeds.get(index))
+            .map(FeedSlot::articles)
+            .unwrap_or(&[])
+    }
+
+    /// The name of the opened feed, if any.
+    pub fn open_feed_label(&self) -> Option<String> {
+        self.open_feed
+            .and_then(|index| self.feeds.get(index))
+            .map(FeedSlot::label)
+    }
+
+    /// Move the cursor in the focused column by `delta` rows.
+    pub fn move_selection(&mut self, delta: isize) {
+        match self.focus {
+            Focus::Feeds => {
+                self.selected_feed = step(self.selected_feed, delta, self.feeds.len());
+            }
+            Focus::Articles => {
+                self.selected_article = step(self.selected_article, delta, self.articles().len());
+            }
+        }
+    }
+
+    /// Show the selected feed in the right column and move the focus there.
+    ///
+    /// Does nothing while the article column has the focus (Enter there opens the
+    /// article in the browser, added in a later step).
+    pub fn open_selected_feed(&mut self) {
+        if self.focus == Focus::Feeds && !self.feeds.is_empty() {
+            self.open_feed = Some(self.selected_feed);
+            self.selected_article = 0;
+            self.focus = Focus::Articles;
+        }
+    }
+
     /// Handle a key press.
     pub fn on_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
         match code {
@@ -142,17 +200,40 @@ impl App {
                 self.should_quit = true;
             }
             KeyCode::Char('r') => self.reload = true,
+            KeyCode::Up => self.move_selection(-1),
+            KeyCode::Down => self.move_selection(1),
+            KeyCode::Left => self.focus_feeds(),
+            KeyCode::Right => self.focus_articles(),
+            KeyCode::Enter => self.open_selected_feed(),
             KeyCode::Tab | KeyCode::BackTab => self.toggle_column(),
             _ => {}
         }
     }
 }
 
+/// Move an index by `delta`, clamped into `0..len` (an empty list keeps index 0).
+fn step(index: usize, delta: isize, len: usize) -> usize {
+    if len == 0 {
+        return 0;
+    }
+    (index as isize + delta).clamp(0, len as isize - 1) as usize
+}
+
+/// The first row to draw so that `selected` is visible in a window of `height` rows.
+pub fn scroll_offset(selected: usize, len: usize, height: usize) -> usize {
+    if height == 0 {
+        return 0;
+    }
+    let max_offset = len.saturating_sub(height);
+    selected
+        .saturating_sub(height.saturating_sub(1))
+        .min(max_offset)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::{Source, ThemeName};
-    use crate::feed::Article;
 
     fn config_with_sources() -> Config {
         Config {
@@ -184,6 +265,19 @@ mod tests {
         }
     }
 
+    fn loaded_app() -> App {
+        let mut app = App::new(config_with_sources());
+        app.apply_update(FeedUpdate {
+            index: 0,
+            result: Ok(feed("Erster", 3)),
+        });
+        app.apply_update(FeedUpdate {
+            index: 1,
+            result: Ok(feed("Zweiter", 5)),
+        });
+        app
+    }
+
     #[test]
     fn q_asks_to_quit() {
         let mut app = App::default();
@@ -198,6 +292,15 @@ mod tests {
         app.on_key(KeyCode::Tab, KeyModifiers::NONE);
         assert_eq!(app.focus, Focus::Articles);
         app.on_key(KeyCode::BackTab, KeyModifiers::SHIFT);
+        assert_eq!(app.focus, Focus::Feeds);
+    }
+
+    #[test]
+    fn left_and_right_arrows_pick_a_column() {
+        let mut app = App::default();
+        app.on_key(KeyCode::Right, KeyModifiers::NONE);
+        assert_eq!(app.focus, Focus::Articles);
+        app.on_key(KeyCode::Left, KeyModifiers::NONE);
         assert_eq!(app.focus, Focus::Feeds);
     }
 
@@ -264,5 +367,78 @@ mod tests {
     fn the_config_defaults_to_gruvbox() {
         let app = App::new(config_with_sources());
         assert_eq!(app.config.theme, ThemeName::Gruvbox);
+    }
+
+    #[test]
+    fn the_feed_cursor_stays_within_the_list() {
+        let mut app = loaded_app();
+        app.move_selection(-1); // already at the top
+        assert_eq!(app.selected_feed, 0);
+        app.move_selection(1);
+        assert_eq!(app.selected_feed, 1);
+        app.move_selection(1); // past the end
+        assert_eq!(app.selected_feed, 1);
+    }
+
+    #[test]
+    fn enter_opens_the_selected_feed_and_focuses_the_articles() {
+        let mut app = loaded_app();
+        app.move_selection(1);
+        app.on_key(KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(app.open_feed, Some(1));
+        assert_eq!(app.focus, Focus::Articles);
+        assert_eq!(app.articles().len(), 5);
+        assert_eq!(app.open_feed_label().as_deref(), Some("Zweiter"));
+    }
+
+    #[test]
+    fn the_article_cursor_stays_within_the_open_feed() {
+        let mut app = loaded_app();
+        app.open_selected_feed(); // opens feed 0 (3 articles)
+        assert_eq!(app.articles().len(), 3);
+        app.move_selection(1);
+        app.move_selection(1);
+        app.move_selection(1); // past the end
+        assert_eq!(app.selected_article, 2);
+        app.move_selection(-5);
+        assert_eq!(app.selected_article, 0);
+    }
+
+    #[test]
+    fn enter_in_the_article_column_does_not_reopen_a_feed() {
+        let mut app = loaded_app();
+        app.open_selected_feed();
+        app.on_key(KeyCode::Enter, KeyModifiers::NONE); // would open the article later
+        assert_eq!(app.open_feed, Some(0));
+        assert_eq!(app.focus, Focus::Articles);
+    }
+
+    #[test]
+    fn an_empty_feed_list_cannot_be_opened() {
+        let mut app = App::new(Config::default());
+        app.on_key(KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(app.open_feed, None);
+    }
+
+    #[test]
+    fn without_an_open_feed_there_are_no_articles() {
+        let app = loaded_app();
+        assert!(app.articles().is_empty());
+        assert_eq!(app.open_feed_label(), None);
+    }
+
+    #[test]
+    fn the_scroll_offset_keeps_the_selection_visible() {
+        // Short list: never scroll.
+        assert_eq!(scroll_offset(0, 3, 10), 0);
+        assert_eq!(scroll_offset(2, 3, 10), 0);
+        // Long list: scroll just enough to show the last row.
+        assert_eq!(scroll_offset(0, 100, 10), 0);
+        assert_eq!(scroll_offset(9, 100, 10), 0);
+        assert_eq!(scroll_offset(10, 100, 10), 1);
+        assert_eq!(scroll_offset(99, 100, 10), 90);
+        // Degenerate cases.
+        assert_eq!(scroll_offset(5, 0, 10), 0);
+        assert_eq!(scroll_offset(5, 10, 0), 0);
     }
 }
