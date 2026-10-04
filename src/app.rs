@@ -188,12 +188,27 @@ impl App {
 
     /// The article cap for one feed: the source's own `max`, else the global `max_articles`
     /// (`0` meaning "no cap" in both places).
-    fn article_limit(&self, index: usize) -> usize {
+    pub fn article_limit(&self, index: usize) -> usize {
         self.config
             .sources
             .get(index)
             .and_then(|source| source.max)
             .unwrap_or(self.config.max_articles)
+    }
+
+    /// How many articles this feed contributes to the list: the delivered count, capped by
+    /// [`Self::article_limit`]. This is the number shown in the feed column.
+    pub fn shown_article_count(&self, index: usize) -> usize {
+        let Some(slot) = self.feeds.get(index) else {
+            return 0;
+        };
+        let delivered = slot.articles().len();
+        let cap = self.article_limit(index);
+        if cap == 0 {
+            delivered
+        } else {
+            delivered.min(cap)
+        }
     }
 
     /// The needle currently filtering the article list.
@@ -713,6 +728,39 @@ mod tests {
         assert!(app.show_help);
         app.on_key(KeyCode::Char('?'), KeyModifiers::NONE);
         assert!(!app.show_help);
+    }
+
+    #[test]
+    fn the_feed_column_number_is_the_count_actually_used() {
+        let mut app = App::new(config_with_sources());
+        app.apply_update(FeedUpdate {
+            index: 0,
+            result: Ok(feed("Erster", 10)),
+        });
+        app.apply_update(FeedUpdate {
+            index: 1,
+            result: Ok(feed("Zweiter", 120)),
+        });
+
+        // Without any limit every delivered article is used.
+        assert_eq!(app.shown_article_count(0), 10);
+        assert_eq!(app.shown_article_count(1), 120);
+
+        // A source's `max` lowers it …
+        app.config.sources[1].max = Some(5);
+        assert_eq!(app.shown_article_count(1), 5);
+
+        // … but never claims more than the feed delivers.
+        app.config.sources[1].max = Some(500);
+        assert_eq!(app.shown_article_count(1), 120);
+
+        // The global limit is the fallback for feeds without their own `max`.
+        app.config.max_articles = 7;
+        assert_eq!(app.shown_article_count(0), 7);
+        assert_eq!(app.shown_article_count(1), 120); // still the source's own max
+
+        // An unknown feed has no articles.
+        assert_eq!(app.shown_article_count(9), 0);
     }
 
     #[test]

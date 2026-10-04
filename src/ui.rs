@@ -132,9 +132,9 @@ fn draw_feeds(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
                     Span::raw(slot.label()),
                     Span::raw("  lädt …").style(Style::default().fg(theme.loading)),
                 ]),
-                FeedState::Loaded(feed) => Line::from(vec![
+                FeedState::Loaded(_) => Line::from(vec![
                     Span::raw(slot.label()),
-                    Span::raw(format!("  ({})", feed.articles.len()))
+                    Span::raw(format!("  ({})", app.shown_article_count(index)))
                         .style(Style::default().fg(theme.count)),
                 ]),
                 FeedState::Failed(_) => Line::from(vec![

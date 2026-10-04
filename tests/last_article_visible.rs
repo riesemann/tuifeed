@@ -124,4 +124,25 @@ fn a_source_max_caps_the_rendered_article_list() {
         "`max = 3` must keep the list short:\n{}",
         rows.join("\n")
     );
+    // The feed column names the count that is actually used.
+    assert!(
+        rows.iter().any(|row| row.contains("(3)")),
+        "the feed column must show `max`:\n{}",
+        rows.join("\n")
+    );
+}
+
+#[test]
+fn without_a_max_the_feed_column_shows_what_was_delivered() {
+    let feed = feed::parse_feed(HEISE).unwrap();
+    let delivered = feed.articles.len();
+
+    let rows = screen(feed, config_with_source_max(None), 30, |_, _| {});
+
+    assert!(
+        rows.iter()
+            .any(|row| row.contains(&format!("({delivered})"))),
+        "the feed column must show the delivered count ({delivered}):\n{}",
+        rows.join("\n")
+    );
 }

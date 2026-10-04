@@ -234,8 +234,9 @@ pub struct Config {
 }
 
 impl Config {
-    /// The default article limit per feed.
-    pub const DEFAULT_MAX_ARTICLES: usize = 50;
+    /// The default article limit per feed: no limit, every feed shows what it delivers.
+    /// A source can lower it with its own `max`, or set `max_articles` globally.
+    pub const DEFAULT_MAX_ARTICLES: usize = 0;
 }
 
 impl Default for Config {
@@ -344,7 +345,7 @@ mode = "dark"
 colors = "auto"
 
 # Most articles to show per feed (0 = all). A single feed can override it with `max`.
-max_articles = 50
+max_articles = 0
 
 [layout]
 # Width of the left (feeds) column in percent; the right column takes the rest.
@@ -475,7 +476,7 @@ url = "https://b.example/feed"
         assert_eq!(config.sources.len(), 1);
         assert_eq!(config.sources[0].max, None);
         assert_eq!(config.colors, ColorMode::Auto);
-        assert_eq!(config.max_articles, 50);
+        assert_eq!(config.max_articles, 0);
     }
 
     #[test]
