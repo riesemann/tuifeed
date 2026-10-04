@@ -9,7 +9,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
 };
 
-use crate::app::{App, FeedState, Focus, scroll_offset};
+use crate::app::{App, FeedState, Focus, scroll_offset, scroll_offset_with_next};
 use crate::feed::Article;
 use crate::theme::{self, Theme};
 
@@ -61,6 +61,7 @@ fn draw_help(frame: &mut Frame, area: Rect, theme: &Theme) {
         Line::from("  Enter            Feed öffnen / Artikel im Browser"),
         Line::from("  r                Feeds neu laden"),
         Line::from("  /                Artikel suchen (Enter übernehmen, Esc abbrechen)"),
+        Line::from("  Esc              Filter zurücksetzen / Hilfe schließen"),
         Line::from("  ?                Diese Hilfe schließen"),
         Line::from("  q                Beenden"),
     ];
@@ -99,8 +100,7 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
         return;
     }
 
-    const HELP: &str =
-        " q beenden · ↑↓ wählen · ←→/Tab Spalte · Enter öffnen · r laden · / suchen · ? Hilfe";
+    const HELP: &str = " q beenden · ↑↓ · Tab · Enter · r · / suchen · Esc Filter · ? Hilfe";
 
     let cells = Layout::default()
         .direction(Direction::Horizontal)
@@ -191,20 +191,27 @@ fn draw_articles(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     }
 
     // Build every line up front: a teaser wraps over several lines, so one article
-    // is not one row. Remembering where the selected article starts lets us scroll
-    // it into view by line.
+    // is not one row. Remembering where each article starts lets us scroll by line and
+    // keep the highlighted article in the second-to-last spot while others follow.
     let width = area.width.saturating_sub(2) as usize;
     let mut lines: Vec<Line> = Vec::new();
-    let mut selected_start = 0usize;
+    let mut starts: Vec<usize> = Vec::with_capacity(articles.len());
     for (index, article) in articles.iter().copied().enumerate() {
-        let selected = index == app.selected_article;
-        if selected {
-            selected_start = lines.len();
-        }
-        push_article(&mut lines, article, width, selected, focused, theme);
+        starts.push(lines.len());
+        push_article(
+            &mut lines,
+            article,
+            width,
+            index == app.selected_article,
+            focused,
+            theme,
+        );
     }
 
-    let offset = scroll_offset(selected_start, lines.len(), inner_height(area));
+    let selected_start = starts.get(app.selected_article).copied().unwrap_or(0);
+    let next_start = starts.get(app.selected_article + 1).copied();
+    let offset =
+        scroll_offset_with_next(selected_start, next_start, lines.len(), inner_height(area));
     let paragraph = Paragraph::new(Text::from(lines))
         .block(block)
         .style(Style::default().fg(theme.fg).bg(theme.bg))
@@ -359,6 +366,71 @@ mod tests {
             date,
             teaser: teaser.map(str::to_string),
         }
+    }
+
+    #[test]
+    fn the_selected_article_keeps_room_for_the_next_one() {
+        use crate::app::FeedUpdate;
+        use crate::config::{ColorMode, Config, Source};
+        use crate::feed::Feed;
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let config = Config {
+            colors: ColorMode::TrueColor,
+            sources: vec![Source {
+                name: Some("F".to_string()),
+                url: "https://example.org/feed".to_string(),
+            }],
+            ..Config::default()
+        };
+        let mut app = App::new(config);
+        app.apply_update(FeedUpdate {
+            index: 0,
+            result: Ok(Feed {
+                title: "F".to_string(),
+                articles: [
+                    "Titel-A", "Titel-B", "Titel-C", "Titel-D", "Titel-E", "Titel-F",
+                ]
+                .iter()
+                .map(|title| Article {
+                    title: (*title).to_string(),
+                    link: None,
+                    date: None,
+                    teaser: None,
+                })
+                .collect(),
+            }),
+        });
+        app.open_selected_feed();
+        app.selected_article = 3; // "Titel-D": two articles follow below
+
+        // 100x10: one footer row, then the article column is 9 rows tall (7 inside borders).
+        // Each article is a title line plus a blank, so "Titel-D" starts on line 6.
+        let mut terminal = Terminal::new(TestBackend::new(100, 10)).unwrap();
+        terminal.draw(|frame| draw(frame, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+
+        let rows: Vec<String> = (0..10)
+            .map(|y| (0..100).map(|x| buffer[(x, y)].symbol()).collect())
+            .collect();
+
+        // The highlighted article is visible …
+        assert!(
+            rows.iter().any(|row| row.contains("Titel-D")),
+            "the selection must be visible: {rows:#?}"
+        );
+        // … and so is the *next* one: without the margin the last inner row would show the
+        // blank separator instead.
+        assert!(
+            rows.iter().any(|row| row.contains("Titel-E")),
+            "the next article must stay in view: {rows:#?}"
+        );
+
+        // The highlighted row really carries the selection background.
+        let selected_row = rows.iter().position(|row| row.contains("Titel-D")).unwrap() as u16;
+        let theme = test_theme();
+        assert_eq!(buffer[(36, selected_row)].bg, theme.selection_bg);
     }
 
     #[test]

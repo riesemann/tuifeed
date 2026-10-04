@@ -221,6 +221,12 @@ impl App {
         self.selected_article = 0;
     }
 
+    /// Drop the committed search filter, bringing the whole article list back.
+    pub fn clear_filter(&mut self) {
+        self.filter.clear();
+        self.selected_article = 0;
+    }
+
     /// Handle a key while the search is open.
     fn on_search_key(&mut self, code: KeyCode) {
         match code {
@@ -333,6 +339,10 @@ impl App {
             KeyCode::Char('r') => self.reload = true,
             KeyCode::Char('?') => self.show_help = !self.show_help,
             KeyCode::Char('/') => self.start_search(),
+            KeyCode::Esc => {
+                self.show_help = false;
+                self.clear_filter();
+            }
             KeyCode::Up => self.move_selection(-1),
             KeyCode::Down => self.move_selection(1),
             KeyCode::Left => self.focus_feeds(),
@@ -379,6 +389,30 @@ pub fn scroll_offset(selected: usize, len: usize, height: usize) -> usize {
     selected
         .saturating_sub(height.saturating_sub(1))
         .min(max_offset)
+}
+
+/// Like [`scroll_offset`], but keeps one line of the *next* article on screen.
+///
+/// As long as another article follows the selected one, the highlighted entry never sits
+/// on the last visible row — it stays in the second-to-last spot, so the reader sees what
+/// comes next. On the last article (no `next_start`) the plain rule applies and the list
+/// scrolls to its end.
+pub fn scroll_offset_with_next(
+    selected_start: usize,
+    next_start: Option<usize>,
+    len: usize,
+    height: usize,
+) -> usize {
+    if height == 0 {
+        return 0;
+    }
+    let max_offset = len.saturating_sub(height);
+    let mut offset = scroll_offset(selected_start, len, height);
+    if let Some(next) = next_start {
+        // Show at least the first line of the following article.
+        offset = offset.max(next.saturating_sub(height.saturating_sub(1)));
+    }
+    offset.min(selected_start).min(max_offset)
 }
 
 #[cfg(test)]
@@ -706,6 +740,44 @@ mod tests {
         app.on_key(KeyCode::Char('q'), KeyModifiers::NONE);
         assert!(!app.should_quit);
         assert_eq!(app.search.as_deref(), Some("q"));
+    }
+
+    #[test]
+    fn esc_drops_a_committed_filter() {
+        let mut app = loaded_app();
+        app.open_selected_feed();
+        app.on_key(KeyCode::Char('/'), KeyModifiers::NONE);
+        app.on_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.on_key(KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(app.visible_articles().len(), 1);
+
+        app.on_key(KeyCode::Esc, KeyModifiers::NONE);
+        assert!(app.filter().is_empty());
+        assert_eq!(app.visible_articles().len(), 3);
+        assert_eq!(app.selected_article, 0);
+    }
+
+    #[test]
+    fn esc_also_closes_the_help() {
+        let mut app = App::default();
+        app.on_key(KeyCode::Char('?'), KeyModifiers::NONE);
+        app.on_key(KeyCode::Esc, KeyModifiers::NONE);
+        assert!(!app.show_help);
+    }
+
+    #[test]
+    fn the_scroll_offset_leaves_room_for_the_next_article() {
+        // Four articles, three lines each (start 0, 3, 6, 9), window of six rows.
+        // Selecting the first: the next article is already visible.
+        assert_eq!(scroll_offset_with_next(0, Some(3), 12, 6), 0);
+        // Selecting article 2: scroll so its first line of the *next* one shows at the bottom.
+        assert_eq!(scroll_offset_with_next(6, Some(9), 12, 6), 4);
+        // The last article has no successor: the plain rule applies (capped at the end).
+        assert_eq!(scroll_offset_with_next(9, None, 12, 6), 4);
+        // The selected article never scrolls off the top, however far the next one is.
+        assert_eq!(scroll_offset_with_next(2, Some(30), 40, 5), 2);
+        // Degenerate window.
+        assert_eq!(scroll_offset_with_next(5, Some(6), 10, 0), 0);
     }
 
     #[test]

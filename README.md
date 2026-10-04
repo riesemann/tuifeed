@@ -13,6 +13,7 @@ Läuft unter Linux, macOS und Windows.
 | `Enter` | Feed öffnen / Artikel im Browser öffnen |
 | `r` | Feeds neu laden |
 | `/` | Artikel suchen: tippen filtert live, `Enter` übernimmt, `Esc` verwirft |
+| `Esc` | Filter zurücksetzen (ganze Artikelliste wieder zeigen) |
 | `?` | Tastenhilfe ein-/ausblenden |
 | `q` | Programm beenden |
 
@@ -40,6 +41,12 @@ url = "https://www.heise.de/rss/heise-atom.xml"
   Palettenfarben auf den nächstliegenden 256er- bzw. 16er-Eintrag abgebildet.
 - `max_articles`: begrenzt nur die Anzeige; geparst wird der ganze Feed (der Zähler
   in der Feed-Spalte zeigt weiterhin die Gesamtzahl).
+
+## Scrollen in der Artikelspalte
+
+Solange unter dem hervorgehobenen Artikel noch weitere folgen, bleibt mindestens die erste
+Zeile des nächsten Artikels sichtbar — der Cursor sitzt also im vorletzten sichtbaren Platz
+und man sieht, was als Nächstes kommt. Erst beim letzten Artikel scrollt die Liste bis ans Ende.
 
 ## Bauen und starten
 
