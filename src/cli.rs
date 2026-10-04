@@ -18,17 +18,17 @@ pub struct Options {
 
 /// The usage text.
 pub const USAGE: &str = "\
-tuifeed — RSS-Feeds und ihre Artikel im Terminal
+tuifeed — RSS feeds and their articles in a terminal
 
-Aufruf:
-  tuifeed [OPTIONEN]
+Usage:
+  tuifeed [OPTIONS]
 
-Optionen:
-  -f, --feed <NR|NAME>   nur diesen Feed anzeigen (Nummer aus --list oder Name),
-                         ohne Feed-Liste
-  -l, --list             die konfigurierten Feeds auflisten und beenden
-  -V, --version          Version anzeigen
-  -h, --help             diese Hilfe
+Options:
+  -f, --feed <NR|NAME>   show this feed only (number from --list, or its name),
+                         without the feed list
+  -l, --list             list the configured feeds and exit
+  -V, --version          print the version
+  -h, --help             this help
 ";
 
 /// The version line, e.g. `tuifeed 1.0.0`.
@@ -48,20 +48,20 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Options, String>
             "-f" | "--feed" => {
                 let value = args
                     .next()
-                    .ok_or_else(|| "--feed braucht einen Namen".to_string())?;
+                    .ok_or_else(|| "--feed needs a name".to_string())?;
                 if value.trim().is_empty() {
-                    return Err("--feed braucht einen Namen".to_string());
+                    return Err("--feed needs a name".to_string());
                 }
                 options.feed = Some(value);
             }
             other if other.starts_with("--feed=") => {
                 let value = &other["--feed=".len()..];
                 if value.trim().is_empty() {
-                    return Err("--feed braucht einen Namen".to_string());
+                    return Err("--feed needs a name".to_string());
                 }
                 options.feed = Some(value.to_string());
             }
-            other => return Err(format!("unbekannte Option: {other}")),
+            other => return Err(format!("unknown option: {other}")),
         }
     }
     Ok(options)

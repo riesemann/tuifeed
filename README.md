@@ -3,9 +3,7 @@
 RSS feeds and their articles in a terminal interface (TUI), written in Rust.
 Runs on Linux, macOS and Windows.
 
-Version 1.0.0 — what changed since the first release is in [CHANGELOG.md](CHANGELOG.md).
-The user interface and the command-line messages are in German; the code, comments and these
-documents are in English.
+Version 1.0.0 — see [CHANGELOG.md](CHANGELOG.md) for what the release contains.
 
 ## Controls
 
@@ -92,12 +90,14 @@ taking over the terminal.
 `--list` (`-l`) shows which feeds are configured — number, name and the respective `max`:
 
 ```
-Konfiguration: /home/…/.config/tuifeed/config.toml
+Configuration: /home/…/.config/tuifeed/config.toml
 
-2 Feeds:
+2 feeds:
 
    1. Heise   (max 50)
    2. 9to5Linux
+
+Show one of them directly:  tuifeed --feed <NR|NAME>
 ```
 
 It starts no interface and fetches nothing from the network.

@@ -220,13 +220,13 @@ pub struct Source {
 }
 
 impl Source {
-    /// The name to show for this source; `(ohne Name)` when none is configured.
+    /// The name to show for this source; `(no name)` when none is configured.
     ///
     /// Such a feed is addressed by its number (see [`Config::describe`]).
     pub fn display_name(&self) -> String {
         match &self.name {
             Some(name) if !name.trim().is_empty() => name.clone(),
-            _ => "(ohne Name)".to_string(),
+            _ => "(no name)".to_string(),
         }
     }
 }
@@ -276,13 +276,11 @@ impl Config {
     pub fn describe(&self) -> String {
         let mut out = String::new();
         match Self::path() {
-            Some(path) => out.push_str(&format!("Konfiguration: {}\n", path.display())),
-            None => out.push_str("Konfiguration: (Pfad unbekannt)\n"),
+            Some(path) => out.push_str(&format!("Configuration: {}\n", path.display())),
+            None => out.push_str("Configuration: (path unknown)\n"),
         }
         if self.sources.is_empty() {
-            out.push_str(
-                "\nKeine Feeds konfiguriert.\n\nTrage sie in der Datei unter [[sources]] ein.\n",
-            );
+            out.push_str("\nNo feeds configured.\n\nAdd them to the file under [[sources]].\n");
             return out;
         }
 
@@ -290,9 +288,9 @@ impl Config {
             "\n{} {}:\n\n",
             self.sources.len(),
             if self.sources.len() == 1 {
-                "Feed"
+                "feed"
             } else {
-                "Feeds"
+                "feeds"
             }
         ));
         for (index, source) in self.sources.iter().enumerate() {
@@ -302,7 +300,7 @@ impl Config {
             }
             out.push('\n');
         }
-        out.push_str("\nEinen davon direkt anzeigen:  tuifeed --feed <NR|NAME>\n");
+        out.push_str("\nShow one of them directly:  tuifeed --feed <NR|NAME>\n");
         out
     }
 
@@ -446,9 +444,9 @@ mod tests {
             ..Config::default()
         };
         let text = config.describe();
-        assert!(text.contains("2 Feeds"), "got:\n{text}");
+        assert!(text.contains("2 feeds"), "got:\n{text}");
         assert!(text.contains("1. Heise"), "got:\n{text}");
-        assert!(text.contains("2. (ohne Name)"), "got:\n{text}");
+        assert!(text.contains("2. (no name)"), "got:\n{text}");
         assert!(text.contains("(max 50)"), "got:\n{text}");
         // The URLs stay out of the list.
         assert!(!text.contains("http"), "got:\n{text}");
@@ -466,7 +464,7 @@ mod tests {
             ..Config::default()
         };
         assert!(
-            config.describe().contains("1 Feed:"),
+            config.describe().contains("1 feed:"),
             "{}",
             config.describe()
         );
@@ -475,7 +473,7 @@ mod tests {
     #[test]
     fn describe_says_when_nothing_is_configured() {
         let text = Config::default().describe();
-        assert!(text.contains("Keine Feeds konfiguriert"), "got:\n{text}");
+        assert!(text.contains("No feeds configured"), "got:\n{text}");
         assert!(text.contains("[[sources]]"), "got:\n{text}");
     }
 

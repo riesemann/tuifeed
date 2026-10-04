@@ -4,9 +4,6 @@ All notable changes to tuifeed are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-The user interface and the command-line messages are in German; the code, comments, this changelog
-and the README are in English.
-
 ## 1.0.0 - 2026-10-04
 
 First release. Every milestone of the project's specification (M0–M6) is implemented, together with

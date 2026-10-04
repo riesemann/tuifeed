@@ -146,7 +146,7 @@ impl App {
     pub fn restrict_to_feed(&mut self, feed: &str) -> Result<(), String> {
         let wanted = feed.trim();
         if wanted.is_empty() {
-            return Err(format!("leere Angabe. Verfügbar: {}", self.feed_names()));
+            return Err(format!("empty feed. Available: {}", self.feed_names()));
         }
         let needle = wanted.to_lowercase();
         // A name wins over a number, so a feed literally called "2" stays reachable.
@@ -169,7 +169,7 @@ impl App {
                 Ok(())
             }
             None => Err(format!(
-                "kein Feed „{feed}“. Verfügbar: {}",
+                "no feed \"{feed}\". Available: {}",
                 self.feed_names()
             )),
         }
@@ -180,17 +180,17 @@ impl App {
         self.only_feed.is_none()
     }
 
-    /// The configured feeds as `1 = Heise, 2 = (ohne Name)`, for messages.
+    /// The configured feeds as `1 = Heise, 2 = (no name)`, for messages.
     pub fn feed_names(&self) -> String {
         if self.feeds.is_empty() {
-            return "(keine)".to_string();
+            return "(none)".to_string();
         }
         self.feeds
             .iter()
             .enumerate()
             .map(|(index, slot)| {
                 let label = if slot.name.trim().is_empty() {
-                    "(ohne Name)"
+                    "(no name)"
                 } else {
                     slot.name.as_str()
                 };
@@ -366,7 +366,7 @@ impl App {
             return self.single_feed_status(index);
         }
         if self.feeds.is_empty() {
-            return "Keine Feeds konfiguriert.".to_string();
+            return "No feeds configured.".to_string();
         }
         let loading = self
             .feeds
@@ -381,29 +381,34 @@ impl App {
         let articles: usize = self.feeds.iter().map(|slot| slot.articles().len()).sum();
 
         if loading > 0 {
-            format!("Lade Feeds … ({loading} von {})", self.feeds.len())
+            format!("Loading feeds … ({loading} of {})", self.feeds.len())
         } else if failed > 0 {
             format!(
-                "{} Feeds · {failed} fehlgeschlagen · {articles} Artikel",
-                self.feeds.len()
+                "{} · {failed} failed · {}",
+                count_of(self.feeds.len(), "feed", "feeds"),
+                count_of(articles, "article", "articles")
             )
         } else {
-            format!("{} Feeds · {articles} Artikel", self.feeds.len())
+            format!(
+                "{} · {}",
+                count_of(self.feeds.len(), "feed", "feeds"),
+                count_of(articles, "article", "articles")
+            )
         }
     }
 
     /// The footer text while a single feed is pinned: only that feed, with the count in use.
     fn single_feed_status(&self, index: usize) -> String {
         let Some(slot) = self.feeds.get(index) else {
-            return "Keine Feeds konfiguriert.".to_string();
+            return "No feeds configured.".to_string();
         };
         match &slot.state {
-            FeedState::Loading => "Lade Feed …".to_string(),
-            FeedState::Failed(_) => format!("{} · fehlgeschlagen", slot.label()),
+            FeedState::Loading => "Loading feed …".to_string(),
+            FeedState::Failed(_) => format!("{} · failed", slot.label()),
             FeedState::Loaded(_) => format!(
-                "{} · {} Artikel",
+                "{} · {}",
                 slot.label(),
-                self.shown_article_count(index)
+                count_of(self.shown_article_count(index), "article", "articles")
             ),
         }
     }
@@ -494,6 +499,11 @@ fn article_matches(article: &Article, needle: &str) -> bool {
             .teaser
             .as_deref()
             .is_some_and(|teaser| teaser.to_lowercase().contains(needle))
+}
+
+/// `1 feed` / `3 feeds`.
+fn count_of(count: usize, singular: &str, plural: &str) -> String {
+    format!("{count} {}", if count == 1 { singular } else { plural })
 }
 
 /// Move an index by `delta`, clamped into `0..len` (an empty list keeps index 0).
@@ -696,13 +706,17 @@ mod tests {
     #[test]
     fn the_status_counts_feeds_and_articles() {
         let app = loaded_app();
-        assert_eq!(app.status(), "2 Feeds · 8 Artikel");
+        assert_eq!(app.status(), "2 feeds · 8 articles");
     }
 
     #[test]
     fn the_status_says_while_feeds_are_still_loading() {
         let app = App::new(config_with_sources());
-        assert!(app.status().contains("Lade Feeds"), "got: {}", app.status());
+        assert!(
+            app.status().contains("Loading feeds"),
+            "got: {}",
+            app.status()
+        );
     }
 
     #[test]
@@ -716,17 +730,13 @@ mod tests {
             index: 1,
             result: Ok(feed("Zweiter", 5)),
         });
-        assert!(
-            app.status().contains("fehlgeschlagen"),
-            "got: {}",
-            app.status()
-        );
+        assert!(app.status().contains("failed"), "got: {}", app.status());
     }
 
     #[test]
     fn the_status_of_an_empty_configuration_says_so() {
         let app = App::new(Config::default());
-        assert_eq!(app.status(), "Keine Feeds konfiguriert.");
+        assert_eq!(app.status(), "No feeds configured.");
     }
 
     #[test]
@@ -1036,7 +1046,7 @@ mod tests {
         let error = app.restrict_to_feed("gibtsnicht").unwrap_err();
         assert!(error.contains("gibtsnicht"), "got: {error}");
         assert!(error.contains("1 = Heise"), "got: {error}");
-        assert!(error.contains("2 = (ohne Name)"), "got: {error}");
+        assert!(error.contains("2 = (no name)"), "got: {error}");
         // Nothing changed: the normal two-column view stays.
         assert_eq!(app.only_feed, None);
         assert!(app.shows_feed_column());
@@ -1065,17 +1075,17 @@ mod tests {
     fn the_status_of_a_pinned_feed_names_it() {
         let mut app = loaded_app();
         app.restrict_to_feed("Heise").unwrap();
-        assert_eq!(app.status(), "Heise · 3 Artikel");
+        assert_eq!(app.status(), "Heise · 3 articles");
 
         // While it is still loading, and when it failed.
         let mut app = App::new(config_with_sources());
         app.restrict_to_feed("Heise").unwrap();
-        assert_eq!(app.status(), "Lade Feed …");
+        assert_eq!(app.status(), "Loading feed …");
         app.apply_update(FeedUpdate {
             index: 0,
             result: Err("HTTP 500".to_string()),
         });
-        assert_eq!(app.status(), "Heise · fehlgeschlagen");
+        assert_eq!(app.status(), "Heise · failed");
     }
 
     #[test]

@@ -59,28 +59,30 @@ pub fn draw(frame: &mut Frame, app: &App) {
 /// A centred overlay with the key bindings (only the keys that apply right now).
 fn draw_help(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     let mut lines = vec![
-        Line::from("Tastenbelegung").style(
+        Line::from("Key bindings").style(
             Style::default()
                 .fg(theme.title)
                 .add_modifier(Modifier::BOLD),
         ),
         Line::from(""),
-        Line::from("  ↑ / ↓            Eintrag wählen"),
+        Line::from("  ↑ / ↓            select an entry"),
     ];
     if app.shows_feed_column() {
-        lines.push(Line::from("  ← / → , Tab      Spalte wechseln"));
+        lines.push(Line::from("  ← / → , Tab      switch column"));
         lines.push(Line::from(
-            "  Enter            Feed öffnen / Artikel im Browser",
+            "  Enter            open feed / article in browser",
         ));
     } else {
-        lines.push(Line::from("  Enter            Artikel im Browser öffnen"));
+        lines.push(Line::from(
+            "  Enter            open the article in the browser",
+        ));
     }
     lines.extend([
-        Line::from("  r                Feeds neu laden"),
-        Line::from("  /                Artikel suchen (Enter übernehmen, Esc abbrechen)"),
-        Line::from("  Esc              Filter zurücksetzen / Hilfe schließen"),
-        Line::from("  ?                Diese Hilfe schließen"),
-        Line::from("  q                Beenden"),
+        Line::from("  r                reload the feeds"),
+        Line::from("  /                search articles (Enter applies, Esc cancels)"),
+        Line::from("  Esc              reset the filter / close the help"),
+        Line::from("  ?                close this help"),
+        Line::from("  q                quit"),
     ]);
 
     let width = 64.min(area.width);
@@ -97,7 +99,7 @@ fn draw_help(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
         Paragraph::new(lines)
             .block(
                 Block::default()
-                    .title("Hilfe")
+                    .title("Help")
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(theme.border_focused)),
             )
@@ -108,8 +110,8 @@ fn draw_help(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
 
 /// The key help in the footer. The column keys only apply while the feed list is shown.
 pub fn footer_help(shows_feed_column: bool) -> &'static str {
-    const TWO_COLUMNS: &str = " q beenden · ↑↓ · Tab · Enter · r · / suchen · Esc Filter · ? Hilfe";
-    const ONE_FEED: &str = " q beenden · ↑↓ · Enter · r · / suchen · Esc Filter · ? Hilfe";
+    const TWO_COLUMNS: &str = " q quit · ↑↓ · Tab · Enter · r · / search · Esc filter · ? help";
+    const ONE_FEED: &str = " q quit · ↑↓ · Enter · r · / search · Esc filter · ? help";
     if shows_feed_column {
         TWO_COLUMNS
     } else {
@@ -120,7 +122,7 @@ pub fn footer_help(shows_feed_column: bool) -> &'static str {
 /// The bottom line: the search prompt, or the key help and the status.
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     if let Some(text) = &app.search {
-        let prompt = format!(" Suche: {text}_      (Enter übernehmen · Esc abbrechen)");
+        let prompt = format!(" Search: {text}_      (Enter applies · Esc cancels)");
         frame.render_widget(
             Paragraph::new(prompt).style(Style::default().fg(theme.title).bg(theme.bg)),
             area,
@@ -185,7 +187,7 @@ fn draw_feeds(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
 
     if rows.is_empty() {
         frame.render_widget(
-            Paragraph::new("Keine Feeds konfiguriert.")
+            Paragraph::new("No feeds configured.")
                 .block(block)
                 .style(Style::default().fg(theme.loading).bg(theme.bg)),
             area,
@@ -202,21 +204,19 @@ fn draw_feeds(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
 fn draw_articles(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     let focused = app.focus == Focus::Articles;
     let title = match app.open_feed_label() {
-        Some(label) if app.filter().is_empty() => format!("Artikel — {label}"),
-        Some(label) => format!("Artikel — {label}  ·  Filter: {}", app.filter()),
-        None => "Artikel".to_string(),
+        Some(label) if app.filter().is_empty() => format!("Articles — {label}"),
+        Some(label) => format!("Articles — {label}  ·  Filter: {}", app.filter()),
+        None => "Articles".to_string(),
     };
     let block = column_block(theme, &title, focused);
 
     let articles = app.visible_articles();
     if articles.is_empty() {
         let hint = match app.open_feed_state() {
-            Some(FeedState::Loading) => "Lade Feed …",
+            Some(FeedState::Loading) => "Loading feed …",
             Some(FeedState::Failed(reason)) => reason.as_str(),
-            Some(FeedState::Loaded(_)) => {
-                "Keine Artikel (oder kein Treffer). — / löscht den Filter."
-            }
-            None => "Feed links auswählen und mit Enter öffnen.",
+            Some(FeedState::Loaded(_)) => "No articles (or no match). — / clears the filter.",
+            None => "Select a feed on the left and open it with Enter.",
         };
         frame.render_widget(
             Paragraph::new(hint)
@@ -819,7 +819,7 @@ mod tests {
         // … the article block fills the window …
         assert!(rows[0].starts_with('┌'), "left border: {:#?}", rows[0]);
         assert!(rows[0].ends_with('┐'), "right border: {:#?}", rows[0]);
-        assert!(rows[0].contains("Artikel — Heise"), "{:#?}", rows[0]);
+        assert!(rows[0].contains("Articles — Heise"), "{:#?}", rows[0]);
         // … and its text starts on the first inner column.
         assert_eq!(buffer[(1, 1)].symbol(), "T");
     }
@@ -850,7 +850,7 @@ mod tests {
             .collect();
 
         assert!(
-            rows.iter().any(|row| row.contains("Lade Feed …")),
+            rows.iter().any(|row| row.contains("Loading feed …")),
             "expected a loading hint: {rows:#?}"
         );
     }
