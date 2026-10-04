@@ -6,7 +6,10 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
+    widgets::{
+        Block, Borders, Clear, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation,
+        ScrollbarState,
+    },
 };
 
 use crate::app::{App, FeedState, Focus, scroll_offset, scroll_offset_with_next};
@@ -193,7 +196,60 @@ fn draw_articles(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     // Build every line up front: a teaser wraps over several lines, so one article
     // is not one row. Remembering where each article starts lets us scroll by line and
     // keep the highlighted article in the second-to-last spot while others follow.
-    let width = area.width.saturating_sub(2) as usize;
+    let inner = block.inner(area);
+    let height = inner.height as usize;
+
+    // First pass at the full width; if the content does not fit, the scrollbar takes the last
+    // column and the text is wrapped one column narrower.
+    let (mut lines, mut starts) =
+        article_lines(&articles, inner.width as usize, app, focused, theme);
+    let needs_scrollbar = lines.len() > height;
+    if needs_scrollbar {
+        (lines, starts) = article_lines(
+            &articles,
+            (inner.width as usize).saturating_sub(1),
+            app,
+            focused,
+            theme,
+        );
+    }
+
+    let selected_start = starts.get(app.selected_article).copied().unwrap_or(0);
+    let next_start = starts.get(app.selected_article + 1).copied();
+    // The blank separator ends every article; the content stops one line before the next one.
+    let selected_end = match next_start {
+        Some(next) => next.saturating_sub(2),
+        None => lines.len().saturating_sub(2),
+    };
+    let total = lines.len();
+    let offset = scroll_offset_with_next(selected_start, selected_end, next_start, total, height);
+    let paragraph = Paragraph::new(Text::from(lines))
+        .block(block)
+        .style(Style::default().fg(theme.fg).bg(theme.bg))
+        .scroll((offset as u16, 0));
+    frame.render_widget(paragraph, area);
+
+    if needs_scrollbar {
+        let mut state = ScrollbarState::new(total)
+            .position(offset)
+            .viewport_content_length(height);
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .track_symbol(Some("│"))
+            .thumb_symbol("█")
+            .track_style(Style::default().fg(theme.count))
+            .thumb_style(Style::default().fg(theme.title));
+        frame.render_stateful_widget(scrollbar, inner, &mut state);
+    }
+}
+
+/// The lines of every visible article, plus the line each article starts on.
+fn article_lines(
+    articles: &[&Article],
+    width: usize,
+    app: &App,
+    focused: bool,
+    theme: &Theme,
+) -> (Vec<Line<'static>>, Vec<usize>) {
     let mut lines: Vec<Line> = Vec::new();
     let mut starts: Vec<usize> = Vec::with_capacity(articles.len());
     for (index, article) in articles.iter().copied().enumerate() {
@@ -207,26 +263,7 @@ fn draw_articles(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
             theme,
         );
     }
-
-    let selected_start = starts.get(app.selected_article).copied().unwrap_or(0);
-    let next_start = starts.get(app.selected_article + 1).copied();
-    // The blank separator ends every article; the content stops one line before the next one.
-    let selected_end = match next_start {
-        Some(next) => next.saturating_sub(2),
-        None => lines.len().saturating_sub(2),
-    };
-    let offset = scroll_offset_with_next(
-        selected_start,
-        selected_end,
-        next_start,
-        lines.len(),
-        inner_height(area),
-    );
-    let paragraph = Paragraph::new(Text::from(lines))
-        .block(block)
-        .style(Style::default().fg(theme.fg).bg(theme.bg))
-        .scroll((offset as u16, 0));
-    frame.render_widget(paragraph, area);
+    (lines, starts)
 }
 
 /// Append the lines of one article: bold title, date, teaser, blank separator.
@@ -497,6 +534,71 @@ mod tests {
         assert!(
             rows.iter().any(|row| row.contains("Teaser-F")),
             "the last article must be shown in full, not just its heading: {rows:#?}"
+        );
+    }
+
+    #[test]
+    fn a_scrollbar_appears_only_when_the_articles_do_not_fit() {
+        use crate::app::FeedUpdate;
+        use crate::config::{ColorMode, Config, Source};
+        use crate::feed::Feed;
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let render = |count: usize| -> ratatui::buffer::Buffer {
+            let config = Config {
+                colors: ColorMode::TrueColor,
+                sources: vec![Source {
+                    name: Some("F".to_string()),
+                    url: "https://example.org/feed".to_string(),
+                    max: None,
+                }],
+                ..Config::default()
+            };
+            let mut app = App::new(config);
+            app.apply_update(FeedUpdate {
+                index: 0,
+                result: Ok(Feed {
+                    title: "F".to_string(),
+                    articles: (0..count)
+                        .map(|i| Article {
+                            title: format!("Titel-{i}"),
+                            link: None,
+                            date: None,
+                            teaser: None,
+                        })
+                        .collect(),
+                }),
+            });
+            app.open_selected_feed();
+            let mut terminal = Terminal::new(TestBackend::new(100, 10)).unwrap();
+            terminal.draw(|frame| draw(frame, &app)).unwrap();
+            terminal.backend().buffer().clone()
+        };
+
+        // The scrollbar sits in the last column inside the article block (x = 98 here).
+        let bar = |buffer: &ratatui::buffer::Buffer| -> Vec<String> {
+            (0..10)
+                .map(|y| buffer[(98, y)].symbol().to_string())
+                .collect()
+        };
+
+        // Two articles (four lines) fit into the seven inner rows: nothing to scroll.
+        let fitting = bar(&render(2));
+        assert!(
+            !fitting.iter().any(|symbol| symbol == "█" || symbol == "│"),
+            "no scrollbar expected, got {fitting:?}"
+        );
+
+        // Twenty articles do not fit: a track with a thumb is drawn.
+        let scrolling = bar(&render(20));
+        assert!(
+            scrolling.iter().any(|symbol| symbol == "█"),
+            "expected a scrollbar thumb, got {scrolling:?}"
+        );
+        assert!(
+            scrolling.iter().any(|symbol| symbol == "│"),
+            "expected a scrollbar track, got {scrolling:?}"
         );
     }
 

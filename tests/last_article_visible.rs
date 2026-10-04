@@ -133,6 +133,39 @@ fn a_source_max_caps_the_rendered_article_list() {
 }
 
 #[test]
+fn the_article_column_gets_a_scrollbar_only_when_it_is_needed() {
+    let feed = feed::parse_feed(HEISE).unwrap();
+    assert!(
+        feed.articles.len() > 10,
+        "the fixture needs enough articles to overflow"
+    );
+
+    // x = 98 is the last column inside the article block at 100 columns / 35 % feeds column.
+    let bar = |rows: &[String]| -> Vec<Option<char>> {
+        rows.iter().map(|row| row.chars().nth(98)).collect()
+    };
+
+    // A whole feed in a 30-row window does not fit: track and thumb are drawn.
+    let rows = screen(feed.clone(), config_with_source_max(None), 30, |_, _| {});
+    let drawn = bar(&rows);
+    assert!(
+        drawn.contains(&Some('█')),
+        "expected a scrollbar thumb:\n{}",
+        rows.join("\n")
+    );
+    assert!(drawn.contains(&Some('│')), "expected a scrollbar track");
+
+    // Two articles fit: no scrollbar at all.
+    let rows = screen(feed, config_with_source_max(Some(2)), 30, |_, _| {});
+    let drawn = bar(&rows);
+    assert!(
+        !drawn.contains(&Some('█')) && !drawn.contains(&Some('│')),
+        "no scrollbar expected:\n{}",
+        rows.join("\n")
+    );
+}
+
+#[test]
 fn without_a_max_the_feed_column_shows_what_was_delivered() {
     let feed = feed::parse_feed(HEISE).unwrap();
     let delivered = feed.articles.len();

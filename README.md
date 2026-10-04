@@ -56,6 +56,10 @@ sitzt also im vorletzten sichtbaren Platz und man sieht, was als Nächstes kommt
 Artikel (kein Nachfolger) wird die restliche Höhe für seinen eigenen Text genutzt, damit Titel und
 Teaser sichtbar sind. Nur ein Artikel, der höher ist als die Spalte, wird von oben angeschnitten.
 
+Passt der Inhalt nicht in die Spalte, zeigt sie zusätzlich rechts eine **Scrollbar** (Track + Griff);
+bei kurzen Listen bleibt die Spalte frei. Der Text wird dann um eine Spalte schmaler umbrochen,
+damit die Scrollbar nichts verdeckt.
+
 ## Bauen und starten
 
 ```
