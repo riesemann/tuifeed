@@ -4,6 +4,7 @@
 //! binary wires them to a real terminal.
 
 pub mod app;
+pub mod cli;
 pub mod config;
 pub mod feed;
 pub mod theme;

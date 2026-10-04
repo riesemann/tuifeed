@@ -68,6 +68,20 @@ und Teaser behalten ihre eigenen Farben (Akzent / gedämpft / sekundär) und ble
 unterscheidbar. Das Band zieht sich über die **volle Breite** der Spalte (bis an die Scrollbar), statt
 hinter dem Text zu enden. Hat die Spalte den Fokus, kommt zusätzlich Fettschrift dazu.
 
+## Aufruf
+
+```
+tuifeed                     # zweispaltig: Feed-Liste links, Artikel rechts
+tuifeed -f Heise            # nur diesen Feed: keine Liste, Artikel im ganzen Fenster
+tuifeed --feed "9to5Linux"  # Name (oder URL) aus der Config, Groß-/Kleinschreibung egal
+tuifeed --help              # Aufruf und Optionen
+```
+
+Mit `--feed <NAME>` (`-f`) startet tuifeed direkt mit **einem** Feed: die Feed-Liste entfällt, die
+Artikelspalte nutzt das ganze Fenster und hat immer den Fokus. `Tab`/`←`/`→` tun dann nichts mehr,
+`↑`/`↓`, `/`, `r` und `Enter` arbeiten wie gewohnt. Ein unbekannter Name wird mit der Liste der
+konfigurierten Feeds gemeldet (Exit-Code 2), ohne das Terminal zu übernehmen.
+
 ## Bauen und starten
 
 ```

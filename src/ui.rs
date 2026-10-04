@@ -34,25 +34,31 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let content = rows[0];
     let footer = rows[1];
 
-    let chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(app.config.layout.feeds()),
-            Constraint::Percentage(app.config.layout.articles()),
-        ])
-        .split(content);
+    if app.shows_feed_column() {
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(app.config.layout.feeds()),
+                Constraint::Percentage(app.config.layout.articles()),
+            ])
+            .split(content);
 
-    draw_feeds(frame, chunks[0], app, &theme);
-    draw_articles(frame, chunks[1], app, &theme);
+        draw_feeds(frame, chunks[0], app, &theme);
+        draw_articles(frame, chunks[1], app, &theme);
+    } else {
+        // A single feed is pinned: no list, the articles use the whole window.
+        draw_articles(frame, content, app, &theme);
+    }
+
     draw_footer(frame, footer, app, &theme);
     if app.show_help {
-        draw_help(frame, content, &theme);
+        draw_help(frame, content, app, &theme);
     }
 }
 
-/// A centred overlay with the key bindings.
-fn draw_help(frame: &mut Frame, area: Rect, theme: &Theme) {
-    let lines = vec![
+/// A centred overlay with the key bindings (only the keys that apply right now).
+fn draw_help(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
+    let mut lines = vec![
         Line::from("Tastenbelegung").style(
             Style::default()
                 .fg(theme.title)
@@ -60,14 +66,22 @@ fn draw_help(frame: &mut Frame, area: Rect, theme: &Theme) {
         ),
         Line::from(""),
         Line::from("  ↑ / ↓            Eintrag wählen"),
-        Line::from("  ← / → , Tab      Spalte wechseln"),
-        Line::from("  Enter            Feed öffnen / Artikel im Browser"),
+    ];
+    if app.shows_feed_column() {
+        lines.push(Line::from("  ← / → , Tab      Spalte wechseln"));
+        lines.push(Line::from(
+            "  Enter            Feed öffnen / Artikel im Browser",
+        ));
+    } else {
+        lines.push(Line::from("  Enter            Artikel im Browser öffnen"));
+    }
+    lines.extend([
         Line::from("  r                Feeds neu laden"),
         Line::from("  /                Artikel suchen (Enter übernehmen, Esc abbrechen)"),
         Line::from("  Esc              Filter zurücksetzen / Hilfe schließen"),
         Line::from("  ?                Diese Hilfe schließen"),
         Line::from("  q                Beenden"),
-    ];
+    ]);
 
     let width = 64.min(area.width);
     let height = (lines.len() as u16 + 2).min(area.height);
@@ -92,6 +106,17 @@ fn draw_help(frame: &mut Frame, area: Rect, theme: &Theme) {
     );
 }
 
+/// The key help in the footer. The column keys only apply while the feed list is shown.
+pub fn footer_help(shows_feed_column: bool) -> &'static str {
+    const TWO_COLUMNS: &str = " q beenden · ↑↓ · Tab · Enter · r · / suchen · Esc Filter · ? Hilfe";
+    const ONE_FEED: &str = " q beenden · ↑↓ · Enter · r · / suchen · Esc Filter · ? Hilfe";
+    if shows_feed_column {
+        TWO_COLUMNS
+    } else {
+        ONE_FEED
+    }
+}
+
 /// The bottom line: the search prompt, or the key help and the status.
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     if let Some(text) = &app.search {
@@ -103,7 +128,7 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
         return;
     }
 
-    const HELP: &str = " q beenden · ↑↓ · Tab · Enter · r · / suchen · Esc Filter · ? Hilfe";
+    let help = footer_help(app.shows_feed_column());
 
     let cells = Layout::default()
         .direction(Direction::Horizontal)
@@ -111,7 +136,7 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
         .split(area);
 
     frame.render_widget(
-        Paragraph::new(HELP).style(Style::default().fg(theme.loading).bg(theme.bg)),
+        Paragraph::new(help).style(Style::default().fg(theme.loading).bg(theme.bg)),
         cells[0],
     );
     frame.render_widget(
@@ -185,10 +210,13 @@ fn draw_articles(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
 
     let articles = app.visible_articles();
     if articles.is_empty() {
-        let hint = if app.open_feed_label().is_some() {
-            "Keine Artikel (oder kein Treffer). — / löscht den Filter."
-        } else {
-            "Feed links auswählen und mit Enter öffnen."
+        let hint = match app.open_feed_state() {
+            Some(FeedState::Loading) => "Lade Feed …",
+            Some(FeedState::Failed(reason)) => reason.as_str(),
+            Some(FeedState::Loaded(_)) => {
+                "Keine Artikel (oder kein Treffer). — / löscht den Filter."
+            }
+            None => "Feed links auswählen und mit Enter öffnen.",
         };
         frame.render_widget(
             Paragraph::new(hint)
@@ -742,6 +770,96 @@ mod tests {
             "end: {:?}",
             bar(&article_screen(20, 19))
         );
+    }
+
+    #[test]
+    fn a_pinned_feed_uses_the_whole_window() {
+        use crate::app::FeedUpdate;
+        use crate::config::{ColorMode, Config, Source};
+        use crate::feed::Feed;
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let config = Config {
+            colors: ColorMode::TrueColor,
+            sources: vec![Source {
+                name: Some("Heise".to_string()),
+                url: "https://example.org/feed".to_string(),
+                max: None,
+            }],
+            ..Config::default()
+        };
+        let mut app = App::new(config);
+        app.apply_update(FeedUpdate {
+            index: 0,
+            result: Ok(Feed {
+                title: "Heise".to_string(),
+                articles: vec![Article {
+                    title: "Titel".to_string(),
+                    link: None,
+                    date: None,
+                    teaser: None,
+                }],
+            }),
+        });
+        app.restrict_to_feed("Heise").unwrap();
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 10)).unwrap();
+        terminal.draw(|frame| draw(frame, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let rows: Vec<String> = (0..10)
+            .map(|y| (0..100).map(|x| buffer[(x, y)].symbol()).collect())
+            .collect();
+
+        // The feed column is gone …
+        assert!(
+            rows.iter().all(|row| !row.contains("Feeds")),
+            "no feed list expected: {rows:#?}"
+        );
+        // … the article block fills the window …
+        assert!(rows[0].starts_with('┌'), "left border: {:#?}", rows[0]);
+        assert!(rows[0].ends_with('┐'), "right border: {:#?}", rows[0]);
+        assert!(rows[0].contains("Artikel — Heise"), "{:#?}", rows[0]);
+        // … and its text starts on the first inner column.
+        assert_eq!(buffer[(1, 1)].symbol(), "T");
+    }
+
+    #[test]
+    fn a_pinned_feed_says_while_it_is_loading() {
+        use crate::config::{ColorMode, Config, Source};
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let config = Config {
+            colors: ColorMode::TrueColor,
+            sources: vec![Source {
+                name: Some("Heise".to_string()),
+                url: "https://example.org/feed".to_string(),
+                max: None,
+            }],
+            ..Config::default()
+        };
+        let mut app = App::new(config);
+        app.restrict_to_feed("Heise").unwrap();
+
+        let mut terminal = Terminal::new(TestBackend::new(60, 6)).unwrap();
+        terminal.draw(|frame| draw(frame, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let rows: Vec<String> = (0..6)
+            .map(|y| (0..60).map(|x| buffer[(x, y)].symbol()).collect())
+            .collect();
+
+        assert!(
+            rows.iter().any(|row| row.contains("Lade Feed …")),
+            "expected a loading hint: {rows:#?}"
+        );
+    }
+
+    #[test]
+    fn the_footer_drops_the_column_keys_for_a_pinned_feed() {
+        // The footer help is a plain string; assert the two variants differ in "Tab".
+        assert!(!crate::ui::footer_help(false).contains("Tab"));
+        assert!(crate::ui::footer_help(true).contains("Tab"));
     }
 
     #[test]

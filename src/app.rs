@@ -98,6 +98,9 @@ pub struct App {
     pub search: Option<String>,
     /// The committed search filter applied to the article list.
     pub filter: String,
+    /// When set, only this feed is shown: the feed column is hidden, the articles fill the
+    /// window and the focus stays there (set by `--feed`).
+    pub only_feed: Option<usize>,
 }
 
 impl Default for App {
@@ -130,7 +133,62 @@ impl App {
             show_help: false,
             search: None,
             filter: String::new(),
+            only_feed: None,
         }
+    }
+
+    /// Restrict the interface to a single configured feed, found by its name or its URL
+    /// (case-insensitive). The feed column is hidden and its articles fill the window.
+    ///
+    /// Fails with a hint listing the configured feeds when no source matches.
+    pub fn restrict_to_feed(&mut self, name: &str) -> Result<(), String> {
+        let needle = name.trim().to_lowercase();
+        if needle.is_empty() {
+            return Err(format!(
+                "leerer Feed-Name. Konfiguriert: {}",
+                self.feed_names()
+            ));
+        }
+        let index = self.feeds.iter().position(|slot| {
+            slot.name.to_lowercase() == needle || slot.url.to_lowercase() == needle
+        });
+        match index {
+            Some(index) => {
+                self.only_feed = Some(index);
+                self.selected_feed = index;
+                self.open_feed = Some(index);
+                self.selected_article = 0;
+                self.focus = Focus::Articles;
+                Ok(())
+            }
+            None => Err(format!(
+                "kein Feed namens „{name}“. Konfiguriert: {}",
+                self.feed_names()
+            )),
+        }
+    }
+
+    /// Whether the feed column is drawn (it is not when a single feed is pinned).
+    pub fn shows_feed_column(&self) -> bool {
+        self.only_feed.is_none()
+    }
+
+    /// The configured feed names (or URLs where no name is set), for messages.
+    pub fn feed_names(&self) -> String {
+        if self.feeds.is_empty() {
+            return "(keine)".to_string();
+        }
+        self.feeds
+            .iter()
+            .map(|slot| {
+                if slot.name.is_empty() {
+                    slot.url.clone()
+                } else {
+                    slot.name.clone()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 
     /// Mark every feed as loading again (used on start and on reload).
@@ -150,13 +208,19 @@ impl App {
         }
     }
 
-    /// Switch the focused column (Tab / Shift-Tab).
+    /// Switch the focused column (Tab / Shift-Tab). Without effect while a single feed is pinned.
     pub fn toggle_column(&mut self) {
+        if self.only_feed.is_some() {
+            return;
+        }
         self.focus = self.focus.other();
     }
 
-    /// Focus the left column.
+    /// Focus the left column. Without effect while a single feed is pinned (there is no list).
     pub fn focus_feeds(&mut self) {
+        if self.only_feed.is_some() {
+            return;
+        }
         self.focus = Focus::Feeds;
     }
 
@@ -280,8 +344,18 @@ impl App {
             .map(FeedSlot::label)
     }
 
+    /// The load state of the feed shown in the article column, if any.
+    pub fn open_feed_state(&self) -> Option<&FeedState> {
+        self.open_feed
+            .and_then(|index| self.feeds.get(index))
+            .map(|slot| &slot.state)
+    }
+
     /// A short status for the footer.
     pub fn status(&self) -> String {
+        if let Some(index) = self.only_feed {
+            return self.single_feed_status(index);
+        }
         if self.feeds.is_empty() {
             return "Keine Feeds konfiguriert.".to_string();
         }
@@ -306,6 +380,22 @@ impl App {
             )
         } else {
             format!("{} Feeds · {articles} Artikel", self.feeds.len())
+        }
+    }
+
+    /// The footer text while a single feed is pinned: only that feed, with the count in use.
+    fn single_feed_status(&self, index: usize) -> String {
+        let Some(slot) = self.feeds.get(index) else {
+            return "Keine Feeds konfiguriert.".to_string();
+        };
+        match &slot.state {
+            FeedState::Loading => "Lade Feed …".to_string(),
+            FeedState::Failed(_) => format!("{} · fehlgeschlagen", slot.label()),
+            FeedState::Loaded(_) => format!(
+                "{} · {} Artikel",
+                slot.label(),
+                self.shown_article_count(index)
+            ),
         }
     }
 
@@ -866,6 +956,74 @@ mod tests {
         app.on_key(KeyCode::Char('?'), KeyModifiers::NONE);
         app.on_key(KeyCode::Esc, KeyModifiers::NONE);
         assert!(!app.show_help);
+    }
+
+    #[test]
+    fn pinning_a_feed_by_name_hides_the_list_and_opens_it() {
+        let mut app = loaded_app();
+        // The name is matched case-insensitively.
+        app.restrict_to_feed("heise").unwrap();
+        assert_eq!(app.only_feed, Some(0));
+        assert!(!app.shows_feed_column());
+        assert_eq!(app.open_feed, Some(0));
+        assert_eq!(app.focus, Focus::Articles);
+        assert_eq!(app.visible_articles().len(), 3);
+        assert_eq!(app.open_feed_label().as_deref(), Some("Heise"));
+    }
+
+    #[test]
+    fn a_feed_can_also_be_pinned_by_its_url() {
+        let mut app = loaded_app();
+        app.restrict_to_feed("https://B.example/feed").unwrap();
+        assert_eq!(app.only_feed, Some(1));
+        assert_eq!(app.visible_articles().len(), 5);
+    }
+
+    #[test]
+    fn an_unknown_feed_is_reported_with_the_configured_names() {
+        let mut app = loaded_app();
+        let error = app.restrict_to_feed("gibtsnicht").unwrap_err();
+        assert!(error.contains("gibtsnicht"), "got: {error}");
+        assert!(error.contains("Heise"), "got: {error}");
+        // Nothing changed: the normal two-column view stays.
+        assert_eq!(app.only_feed, None);
+        assert!(app.shows_feed_column());
+    }
+
+    #[test]
+    fn an_empty_feed_name_is_rejected() {
+        let mut app = loaded_app();
+        assert!(app.restrict_to_feed("   ").is_err());
+        assert_eq!(app.only_feed, None);
+    }
+
+    #[test]
+    fn the_column_keys_do_nothing_while_a_single_feed_is_pinned() {
+        let mut app = loaded_app();
+        app.restrict_to_feed("Heise").unwrap();
+        app.on_key(KeyCode::Tab, KeyModifiers::NONE);
+        app.on_key(KeyCode::Left, KeyModifiers::NONE);
+        assert_eq!(app.focus, Focus::Articles);
+        // Moving inside the articles keeps working.
+        app.on_key(KeyCode::Down, KeyModifiers::NONE);
+        assert_eq!(app.selected_article, 1);
+    }
+
+    #[test]
+    fn the_status_of_a_pinned_feed_names_it() {
+        let mut app = loaded_app();
+        app.restrict_to_feed("Heise").unwrap();
+        assert_eq!(app.status(), "Heise · 3 Artikel");
+
+        // While it is still loading, and when it failed.
+        let mut app = App::new(config_with_sources());
+        app.restrict_to_feed("Heise").unwrap();
+        assert_eq!(app.status(), "Lade Feed …");
+        app.apply_update(FeedUpdate {
+            index: 0,
+            result: Err("HTTP 500".to_string()),
+        });
+        assert_eq!(app.status(), "Heise · fehlgeschlagen");
     }
 
     #[test]

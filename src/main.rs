@@ -14,6 +14,7 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use tokio::runtime::Runtime;
 use tuifeed::{
     app::{App, FeedUpdate},
+    cli,
     config::Config,
     feed, ui,
 };
@@ -23,7 +24,35 @@ type Tui = Terminal<CrosstermBackend<Stdout>>;
 /// How long the loop waits for a key before it looks for fetch results again.
 const TICK: Duration = Duration::from_millis(100);
 
+/// Exit code for a wrong command line.
+const EXIT_USAGE: i32 = 2;
+
 fn main() -> Result<()> {
+    let options = match cli::parse(std::env::args().skip(1)) {
+        Ok(options) => options,
+        Err(error) => {
+            eprintln!("tuifeed: {error}");
+            eprint!("\n{}", cli::USAGE);
+            std::process::exit(EXIT_USAGE);
+        }
+    };
+    if options.help {
+        print!("{}", cli::USAGE);
+        return Ok(());
+    }
+
+    if let Err(error) = Config::write_default_if_missing() {
+        eprintln!("tuifeed: {error:#}");
+    }
+    // Resolve `--feed` before the terminal is switched over, so the message stays readable.
+    let mut app = App::new(Config::load());
+    if let Some(name) = &options.feed
+        && let Err(error) = app.restrict_to_feed(name)
+    {
+        eprintln!("tuifeed: {error}");
+        std::process::exit(EXIT_USAGE);
+    }
+
     // Make sure the terminal is always restored, even if we panic.
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -32,7 +61,7 @@ fn main() -> Result<()> {
     }));
 
     let mut terminal = setup_terminal()?;
-    let result = run(&mut terminal);
+    let result = run(&mut terminal, app);
     restore_terminal()?;
     result
 }
@@ -52,13 +81,8 @@ fn restore_terminal() -> Result<()> {
     Ok(())
 }
 
-fn run(terminal: &mut Tui) -> Result<()> {
-    if let Err(error) = Config::write_default_if_missing() {
-        eprintln!("tuifeed: {error:#}");
-    }
-    let config = Config::load();
-    let mut app = App::new(config);
-
+/// The main loop: draw, collect fetch results, react to keys.
+fn run(terminal: &mut Tui, mut app: App) -> Result<()> {
     let runtime = Runtime::new().context("could not start the async runtime")?;
     let client = reqwest::Client::builder()
         .user_agent(concat!("tuifeed/", env!("CARGO_PKG_VERSION")))
