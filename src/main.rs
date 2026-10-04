@@ -1,17 +1,27 @@
 //! tuifeed — RSS feeds and their articles in a terminal UI.
 
 use std::io::{self, Stdout};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use crossterm::{
     event::{self, Event, KeyEventKind},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
-use tuifeed::{app::App, config::Config, ui};
+use tokio::runtime::Runtime;
+use tuifeed::{
+    app::{App, FeedUpdate},
+    config::Config,
+    feed, ui,
+};
 
 type Tui = Terminal<CrosstermBackend<Stdout>>;
+
+/// How long the loop waits for a key before it looks for fetch results again.
+const TICK: Duration = Duration::from_millis(100);
 
 fn main() -> Result<()> {
     // Make sure the terminal is always restored, even if we panic.
@@ -48,14 +58,71 @@ fn run(terminal: &mut Tui) -> Result<()> {
     }
     let config = Config::load();
     let mut app = App::new(config);
+
+    let runtime = Runtime::new().context("could not start the async runtime")?;
+    let client = reqwest::Client::builder()
+        .user_agent(concat!("tuifeed/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .context("could not build the HTTP client")?;
+    let (tx, rx) = mpsc::channel();
+
+    start_load(&runtime, &client, &mut app, &tx);
+
     while !app.should_quit {
         terminal.draw(|frame| ui::draw(frame, &app))?;
-        if let Event::Key(key) = event::read()? {
+
+        // Pick up whatever the background tasks have finished.
+        drain_results(&rx, &mut app);
+
+        // Wait for a key (but wake up regularly to look for results).
+        if let Some(key) = poll_key(TICK)? {
             // Windows reports both press and release; only act on press.
             if key.kind == KeyEventKind::Press {
                 app.on_key(key.code, key.modifiers);
             }
         }
+
+        if app.reload {
+            app.reload = false;
+            start_load(&runtime, &client, &mut app, &tx);
+        }
     }
     Ok(())
+}
+
+/// Wait up to `timeout` for a key event.
+fn poll_key(timeout: Duration) -> Result<Option<event::KeyEvent>> {
+    if !event::poll(timeout)? {
+        return Ok(None);
+    }
+    match event::read()? {
+        Event::Key(key) => Ok(Some(key)),
+        _ => Ok(None),
+    }
+}
+
+/// Mark all feeds as loading and fetch each of them in the background.
+fn start_load(runtime: &Runtime, client: &reqwest::Client, app: &mut App, tx: &Sender<FeedUpdate>) {
+    app.begin_load();
+    for (index, slot) in app.feeds.iter().enumerate() {
+        let client = client.clone();
+        let url = slot.url.clone();
+        let tx = tx.clone();
+        runtime.spawn(async move {
+            let result = feed::fetch(&client, &url)
+                .await
+                .map_err(|error| format!("{error:#}"));
+            let _ = tx.send(FeedUpdate { index, result });
+        });
+    }
+}
+
+/// Take every finished fetch out of the channel and store it.
+fn drain_results(rx: &Receiver<FeedUpdate>, app: &mut App) {
+    while let Ok(update) = rx.try_recv() {
+        if let Err(error) = &update.result {
+            eprintln!("tuifeed: feed {} failed: {error}", update.index);
+        }
+        app.apply_update(update);
+    }
 }
