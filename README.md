@@ -61,6 +61,13 @@ Track ohne Pfeilspitzen, Griff `█`); bei kurzen Listen bleibt die Spalte frei.
 eine Spalte schmaler umbrochen, damit die Scrollbar nichts verdeckt. Der Griff läuft bis ans untere
 Ende, sobald die Liste ganz nach unten gescrollt ist.
 
+## Hervorhebung des ausgewählten Artikels
+
+Der Cursor färbt **nur den Hintergrund** (`selection_bg` des Themes), nicht die Schrift: Titel, Datum
+und Teaser behalten ihre eigenen Farben (Akzent / gedämpft / sekundär) und bleiben dadurch
+unterscheidbar. Das Band zieht sich über die **volle Breite** der Spalte (bis an die Scrollbar), statt
+hinter dem Text zu enden. Hat die Spalte den Fokus, kommt zusätzlich Fettschrift dazu.
+
 ## Bauen und starten
 
 ```

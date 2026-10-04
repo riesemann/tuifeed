@@ -29,10 +29,9 @@ pub struct Theme {
     pub border_focused: Color,
     /// The border of the unfocused column.
     pub border_unfocused: Color,
-    /// The background of the selected row.
+    /// The background of the selected row. It stays a background only: the selected row keeps
+    /// its own text colours (title/date/teaser), so the highlight does not flatten them.
     pub selection_bg: Color,
-    /// The text colour on the selected row.
-    pub selection_fg: Color,
     /// The article title.
     pub title: Color,
     /// The article date.
@@ -55,7 +54,6 @@ struct Palette {
     secondary: u32,
     muted: u32,
     selection_bg: u32,
-    selection_fg: u32,
     danger: u32,
 }
 
@@ -107,7 +105,6 @@ fn resolve(palette: Palette, depth: ColorDepth) -> Theme {
         border_focused: c(palette.accent),
         border_unfocused: c(palette.muted),
         selection_bg: c(palette.selection_bg),
-        selection_fg: c(palette.selection_fg),
         title: c(palette.accent),
         date: c(palette.muted),
         teaser: c(palette.secondary),
@@ -215,7 +212,6 @@ fn gruvbox_dark() -> Palette {
         secondary: 0x83a598, // bright blue
         muted: 0x928374,     // gray
         selection_bg: 0x3c3836,
-        selection_fg: 0xebdbb2,
         danger: 0xfb4934,
     }
 }
@@ -228,7 +224,6 @@ fn gruvbox_light() -> Palette {
         secondary: 0x076678, // neutral blue
         muted: 0x928374,
         selection_bg: 0xebdbb2,
-        selection_fg: 0x3c3836,
         danger: 0x9d0006,
     }
 }
@@ -241,7 +236,6 @@ fn nord_dark() -> Palette {
         secondary: 0x81a1c1, // nord9
         muted: 0x616e88,
         selection_bg: 0x434c5e, // nord2
-        selection_fg: 0xeceff4, // nord6
         danger: 0xbf616a,       // nord11
     }
 }
@@ -254,7 +248,6 @@ fn nord_light() -> Palette {
         secondary: 0x81a1c1, // nord9
         muted: 0x7b88a1,
         selection_bg: 0xd8dee9, // nord4
-        selection_fg: 0x2e3440, // nord0
         danger: 0xbf616a,       // nord11
     }
 }
@@ -267,7 +260,6 @@ fn dracula_dark() -> Palette {
         secondary: 0x8be9fd,    // cyan
         muted: 0x6272a4,        // comment
         selection_bg: 0x44475a, // current line
-        selection_fg: 0xf8f8f2,
         danger: 0xff5555,
     }
 }
@@ -281,7 +273,6 @@ fn dracula_light() -> Palette {
         secondary: 0x036a96,
         muted: 0x6c664b,
         selection_bg: 0xdedede,
-        selection_fg: 0x1f1f1f,
         danger: 0xcb3a2a,
     }
 }
@@ -295,8 +286,7 @@ fn catppuccin_dark() -> Palette {
         secondary: 0x94e2d5,    // teal
         muted: 0x7f849c,        // overlay1
         selection_bg: 0x313244, // surface0
-        selection_fg: 0xcdd6f4,
-        danger: 0xf38ba8, // red
+        danger: 0xf38ba8,       // red
     }
 }
 
@@ -309,8 +299,7 @@ fn catppuccin_light() -> Palette {
         secondary: 0x179299,    // teal
         muted: 0x8c8fa1,        // overlay1
         selection_bg: 0xccd0da, // surface0
-        selection_fg: 0x4c4f69,
-        danger: 0xd20f39, // red
+        danger: 0xd20f39,       // red
     }
 }
 
@@ -328,14 +317,13 @@ mod tests {
         combos
     }
 
-    fn tokens(t: &Theme) -> [Color; 12] {
+    fn tokens(t: &Theme) -> [Color; 11] {
         [
             t.bg,
             t.fg,
             t.border_focused,
             t.border_unfocused,
             t.selection_bg,
-            t.selection_fg,
             t.title,
             t.date,
             t.teaser,

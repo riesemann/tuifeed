@@ -145,7 +145,13 @@ fn draw_feeds(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
                     Span::raw("  ⚠ Fehler").style(Style::default().fg(theme.error)),
                 ]),
             };
-            ListItem::new(line).style(row_style(theme, index == app.selected_feed, focused))
+            let selected = index == app.selected_feed;
+            let line = if selected {
+                extend_to_width(line, area.width.saturating_sub(2) as usize, theme, focused)
+            } else {
+                line
+            };
+            ListItem::new(line).style(row_style(theme, selected, focused))
         })
         .collect();
 
@@ -289,7 +295,14 @@ fn push_article(
         .fg(theme.title)
         .add_modifier(Modifier::BOLD);
     for part in wrap(&article.title, width) {
-        lines.push(styled_line(part, title_style, selected, focused, theme));
+        lines.push(styled_line(
+            part,
+            title_style,
+            selected,
+            focused,
+            theme,
+            width,
+        ));
     }
     if let Some(date) = format_date(article.date) {
         for part in wrap(&date, width) {
@@ -299,6 +312,7 @@ fn push_article(
                 selected,
                 focused,
                 theme,
+                width,
             ));
         }
     }
@@ -310,6 +324,7 @@ fn push_article(
                 selected,
                 focused,
                 theme,
+                width,
             ));
         }
     }
@@ -323,8 +338,14 @@ fn styled_line(
     selected: bool,
     focused: bool,
     theme: &Theme,
+    width: usize,
 ) -> Line<'static> {
-    Line::from(text).style(base.patch(row_style(theme, selected, focused)))
+    let line = Line::from(text).style(base.patch(row_style(theme, selected, focused)));
+    if selected {
+        extend_to_width(line, width, theme, focused)
+    } else {
+        line
+    }
 }
 
 /// Format an article date as local time `YYYY-MM-DD HH:MM`.
@@ -374,18 +395,37 @@ pub fn wrap(text: &str, width: usize) -> Vec<String> {
 }
 
 /// The style of a list row: highlighted when it is the cursor, given the focus.
+///
+/// Only the background is tinted: the row keeps its own text colours (accent title, muted date,
+/// secondary teaser), so the cursor does not flatten everything into a single colour.
 fn row_style(theme: &Theme, selected: bool, focused: bool) -> Style {
     if !selected {
         return Style::default();
     }
-    let base = Style::default()
-        .bg(theme.selection_bg)
-        .fg(theme.selection_fg);
+    let base = Style::default().bg(theme.selection_bg);
     if focused {
         base.add_modifier(Modifier::BOLD)
     } else {
         base
     }
+}
+
+/// Extend a selected row's background to the full width, so the cursor reads as one bar instead
+/// of a patch that ends where the text happens to end.
+fn extend_to_width(
+    mut line: Line<'static>,
+    width: usize,
+    theme: &Theme,
+    focused: bool,
+) -> Line<'static> {
+    let used = line.width();
+    if used < width {
+        line.spans.push(Span::styled(
+            " ".repeat(width - used),
+            row_style(theme, true, focused),
+        ));
+    }
+    line
 }
 
 /// The number of content rows inside a bordered area.
@@ -489,6 +529,15 @@ mod tests {
         let selected_row = rows.iter().position(|row| row.contains("Titel-D")).unwrap() as u16;
         let theme = test_theme();
         assert_eq!(buffer[(36, selected_row)].bg, theme.selection_bg);
+        // The bar reaches up to the scrollbar column (98) instead of ending with the text …
+        assert_eq!(buffer[(97, selected_row)].bg, theme.selection_bg);
+        // … and the title keeps its own accent colour: the cursor tints, it does not repaint.
+        assert_eq!(buffer[(36, selected_row)].fg, theme.title);
+
+        // A row without the cursor is left plain.
+        let plain_row = rows.iter().position(|row| row.contains("Titel-C")).unwrap() as u16;
+        assert_ne!(buffer[(36, plain_row)].bg, theme.selection_bg);
+        assert_eq!(buffer[(36, plain_row)].fg, theme.title);
     }
 
     #[test]
@@ -617,6 +666,54 @@ mod tests {
     }
 
     #[test]
+    fn the_selected_article_keeps_its_own_text_colours() {
+        use crate::app::FeedUpdate;
+        use crate::config::{ColorMode, Config, Source};
+        use crate::feed::Feed;
+        use chrono::{TimeZone, Utc};
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let config = Config {
+            colors: ColorMode::TrueColor,
+            sources: vec![Source {
+                name: Some("F".to_string()),
+                url: "https://example.org/feed".to_string(),
+                max: None,
+            }],
+            ..Config::default()
+        };
+        let mut app = App::new(config);
+        app.apply_update(FeedUpdate {
+            index: 0,
+            result: Ok(Feed {
+                title: "F".to_string(),
+                articles: vec![Article {
+                    title: "Titel".to_string(),
+                    link: None,
+                    date: Some(Utc.with_ymd_and_hms(2026, 10, 4, 12, 0, 0).unwrap()),
+                    teaser: Some("Teaser".to_string()),
+                }],
+            }),
+        });
+        app.open_selected_feed();
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 10)).unwrap();
+        terminal.draw(|frame| draw(frame, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let theme = test_theme();
+
+        // Title, date and teaser keep their three distinct colours on the cursor row …
+        assert_eq!(buffer[(36, 1)].fg, theme.title);
+        assert_eq!(buffer[(36, 2)].fg, theme.date);
+        assert_eq!(buffer[(36, 3)].fg, theme.teaser);
+        // … all sitting on the same tinted bar.
+        for y in 1..=3 {
+            assert_eq!(buffer[(36, y)].bg, theme.selection_bg, "row {y}");
+        }
+    }
+
+    #[test]
     fn the_scrollbar_thumb_reaches_the_end_of_the_track() {
         // The article block spans rows 0..8, its text rows 1..7; the bar is the x = 98 column.
         let thumb_rows = |buffer: &ratatui::buffer::Buffer| -> Vec<u16> {
@@ -732,13 +829,26 @@ mod tests {
     }
 
     #[test]
-    fn the_selected_row_uses_the_theme_selection_colours() {
+    fn the_selected_row_only_tints_the_background() {
         let theme = test_theme();
         let focused = row_style(&theme, true, true);
         assert_eq!(focused.bg, Some(theme.selection_bg));
-        assert_eq!(focused.fg, Some(theme.selection_fg));
+        // No foreground override: the row keeps its own title/date/teaser colours.
+        assert_eq!(focused.fg, None);
 
         let plain = row_style(&theme, false, true);
         assert_eq!(plain.bg, None);
+    }
+
+    #[test]
+    fn a_selected_row_is_extended_to_the_full_width() {
+        let theme = test_theme();
+        let line = extend_to_width(Line::from("ab"), 10, &theme, true);
+        assert_eq!(line.width(), 10, "the bar must fill the row");
+        assert_eq!(
+            line.spans.last().unwrap().style.bg,
+            Some(theme.selection_bg),
+            "the padding must carry the selection background"
+        );
     }
 }
