@@ -155,6 +155,26 @@ fn the_article_column_gets_a_scrollbar_only_when_it_is_needed() {
     );
     assert!(drawn.contains(&Some('│')), "expected a scrollbar track");
 
+    // With the last article selected the thumb must reach the last inner row (27 at 30 rows).
+    let rows = screen(
+        feed.clone(),
+        config_with_source_max(None),
+        30,
+        |app, count| app.selected_article = count - 1,
+    );
+    let thumb_rows: Vec<usize> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row.chars().nth(98) == Some('█'))
+        .map(|(y, _)| y)
+        .collect();
+    assert_eq!(
+        thumb_rows.last().copied(),
+        Some(27),
+        "the thumb must reach the bottom:\n{}",
+        rows.join("\n")
+    );
+
     // Two articles fit: no scrollbar at all.
     let rows = screen(feed, config_with_source_max(Some(2)), 30, |_, _| {});
     let drawn = bar(&rows);

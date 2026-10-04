@@ -230,10 +230,20 @@ fn draw_articles(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     frame.render_widget(paragraph, area);
 
     if needs_scrollbar {
+        // ratatui places the thumb at `position / (content_length - 1)`, while we scroll lines
+        // `0..=max_offset`. Mapping the two ends onto each other makes the thumb reach the bottom
+        // row when the list is scrolled to its end (passing `offset` directly left it one viewport
+        // short of the end).
+        let max_offset = total.saturating_sub(height);
+        let position = (offset * total.saturating_sub(1))
+            .checked_div(max_offset)
+            .unwrap_or(0);
         let mut state = ScrollbarState::new(total)
-            .position(offset)
+            .position(position)
             .viewport_content_length(height);
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None)
             .track_symbol(Some("│"))
             .thumb_symbol("█")
             .track_style(Style::default().fg(theme.count))
@@ -537,44 +547,48 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_scrollbar_appears_only_when_the_articles_do_not_fit() {
+    /// Render a feed of `count` articles (title-only) in a 100x10 terminal, `selected` highlighted.
+    fn article_screen(count: usize, selected: usize) -> ratatui::buffer::Buffer {
         use crate::app::FeedUpdate;
         use crate::config::{ColorMode, Config, Source};
         use crate::feed::Feed;
         use ratatui::Terminal;
         use ratatui::backend::TestBackend;
 
-        let render = |count: usize| -> ratatui::buffer::Buffer {
-            let config = Config {
-                colors: ColorMode::TrueColor,
-                sources: vec![Source {
-                    name: Some("F".to_string()),
-                    url: "https://example.org/feed".to_string(),
-                    max: None,
-                }],
-                ..Config::default()
-            };
-            let mut app = App::new(config);
-            app.apply_update(FeedUpdate {
-                index: 0,
-                result: Ok(Feed {
-                    title: "F".to_string(),
-                    articles: (0..count)
-                        .map(|i| Article {
-                            title: format!("Titel-{i}"),
-                            link: None,
-                            date: None,
-                            teaser: None,
-                        })
-                        .collect(),
-                }),
-            });
-            app.open_selected_feed();
-            let mut terminal = Terminal::new(TestBackend::new(100, 10)).unwrap();
-            terminal.draw(|frame| draw(frame, &app)).unwrap();
-            terminal.backend().buffer().clone()
+        let config = Config {
+            colors: ColorMode::TrueColor,
+            sources: vec![Source {
+                name: Some("F".to_string()),
+                url: "https://example.org/feed".to_string(),
+                max: None,
+            }],
+            ..Config::default()
         };
+        let mut app = App::new(config);
+        app.apply_update(FeedUpdate {
+            index: 0,
+            result: Ok(Feed {
+                title: "F".to_string(),
+                articles: (0..count)
+                    .map(|i| Article {
+                        title: format!("Titel-{i}"),
+                        link: None,
+                        date: None,
+                        teaser: None,
+                    })
+                    .collect(),
+            }),
+        });
+        app.open_selected_feed();
+        app.selected_article = selected;
+        let mut terminal = Terminal::new(TestBackend::new(100, 10)).unwrap();
+        terminal.draw(|frame| draw(frame, &app)).unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    #[test]
+    fn a_scrollbar_appears_only_when_the_articles_do_not_fit() {
+        let render = |count: usize| article_screen(count, 0);
 
         // The scrollbar sits in the last column inside the article block (x = 98 here).
         let bar = |buffer: &ratatui::buffer::Buffer| -> Vec<String> {
@@ -599,6 +613,37 @@ mod tests {
         assert!(
             scrolling.iter().any(|symbol| symbol == "│"),
             "expected a scrollbar track, got {scrolling:?}"
+        );
+    }
+
+    #[test]
+    fn the_scrollbar_thumb_reaches_the_end_of_the_track() {
+        // The article block spans rows 0..8, its text rows 1..7; the bar is the x = 98 column.
+        let thumb_rows = |buffer: &ratatui::buffer::Buffer| -> Vec<u16> {
+            (0..10)
+                .filter(|y| buffer[(98, *y)].symbol() == "█")
+                .collect()
+        };
+        let bar = |buffer: &ratatui::buffer::Buffer| -> Vec<String> {
+            (0..10)
+                .map(|y| buffer[(98, y)].symbol().to_string())
+                .collect()
+        };
+
+        // At the top the thumb sits on the first inner row …
+        assert_eq!(
+            thumb_rows(&article_screen(20, 0)).first().copied(),
+            Some(1),
+            "top: {:?}",
+            bar(&article_screen(20, 0))
+        );
+
+        // … and with the last article selected it must reach the last inner row.
+        assert_eq!(
+            thumb_rows(&article_screen(20, 19)).last().copied(),
+            Some(7),
+            "end: {:?}",
+            bar(&article_screen(20, 19))
         );
     }
 
