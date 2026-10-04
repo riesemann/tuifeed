@@ -170,20 +170,30 @@ impl App {
     /// The opened feed's articles, capped at `max_articles` (`0` = all) and filtered by
     /// the current search needle (matches the title or the teaser, case-insensitive).
     pub fn visible_articles(&self) -> Vec<&Article> {
-        let Some(slot) = self.open_feed.and_then(|index| self.feeds.get(index)) else {
+        let Some(index) = self.open_feed else {
+            return Vec::new();
+        };
+        let Some(slot) = self.feeds.get(index) else {
             return Vec::new();
         };
         let all = slot.articles();
-        let limit = if self.config.max_articles == 0 {
-            all.len()
-        } else {
-            self.config.max_articles
-        };
+        let cap = self.article_limit(index);
+        let limit = if cap == 0 { all.len() } else { cap };
         let needle = self.needle();
         all.iter()
             .take(limit)
             .filter(|article| article_matches(article, &needle))
             .collect()
+    }
+
+    /// The article cap for one feed: the source's own `max`, else the global `max_articles`
+    /// (`0` meaning "no cap" in both places).
+    fn article_limit(&self, index: usize) -> usize {
+        self.config
+            .sources
+            .get(index)
+            .and_then(|source| source.max)
+            .unwrap_or(self.config.max_articles)
     }
 
     /// The needle currently filtering the article list.
@@ -439,10 +449,12 @@ mod tests {
                 Source {
                     name: Some("Heise".to_string()),
                     url: "https://a.example/feed".to_string(),
+                    max: None,
                 },
                 Source {
                     name: None,
                     url: "https://b.example/feed".to_string(),
+                    max: None,
                 },
             ],
             ..Config::default()
@@ -701,6 +713,36 @@ mod tests {
         assert!(app.show_help);
         app.on_key(KeyCode::Char('?'), KeyModifiers::NONE);
         assert!(!app.show_help);
+    }
+
+    #[test]
+    fn a_source_max_overrides_the_global_article_limit() {
+        let mut app = App::new(config_with_sources());
+        app.apply_update(FeedUpdate {
+            index: 0,
+            result: Ok(feed("Erster", 10)),
+        });
+        app.apply_update(FeedUpdate {
+            index: 1,
+            result: Ok(feed("Zweiter", 10)),
+        });
+        app.config.max_articles = 8;
+        app.config.sources[0].max = Some(3);
+
+        app.open_selected_feed(); // feed 0: its own `max` wins
+        assert_eq!(app.visible_articles().len(), 3);
+
+        app.focus_feeds();
+        app.selected_feed = 1;
+        app.open_selected_feed(); // feed 1: falls back to the global limit
+        assert_eq!(app.visible_articles().len(), 8);
+        // The cap keeps the first entries, i.e. the newest ones (feed order).
+        assert_eq!(app.visible_articles()[0].title, "Artikel 0");
+        assert_eq!(app.visible_articles()[7].title, "Artikel 7");
+
+        // `max = 0` on a source means "no cap", just like the global field.
+        app.config.sources[1].max = Some(0);
+        assert_eq!(app.visible_articles().len(), 10);
     }
 
     #[test]

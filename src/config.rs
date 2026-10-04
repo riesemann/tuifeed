@@ -214,6 +214,9 @@ pub struct Source {
     pub name: Option<String>,
     /// The feed URL.
     pub url: String,
+    /// Most articles to show for this feed (`0` = all); overrides `max_articles`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<usize>,
 }
 
 /// The whole configuration.
@@ -340,7 +343,7 @@ theme = "gruvbox"
 mode = "dark"
 colors = "auto"
 
-# Most articles to show per feed (0 = all).
+# Most articles to show per feed (0 = all). A single feed can override it with `max`.
 max_articles = 50
 
 [layout]
@@ -351,6 +354,7 @@ feeds_percent = 35
 [[sources]]
 name = "Heise"
 url = "https://www.heise.de/rss/heise-atom.xml"
+# max = 30
 "#;
 
 #[cfg(test)]
@@ -416,6 +420,7 @@ mod tests {
             sources: vec![Source {
                 name: Some("Beispiel".to_string()),
                 url: "https://example.com/feed.xml".to_string(),
+                max: Some(30),
             }],
         };
         let text = config.to_toml().unwrap();
@@ -430,12 +435,30 @@ mod tests {
             sources: vec![Source {
                 name: None,
                 url: "https://example.org/rss".to_string(),
+                max: None,
             }],
             ..Config::default()
         };
         config.save_to(&path).unwrap();
         assert_eq!(Config::load_from(&path).unwrap(), config);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_source_can_cap_its_own_article_count() {
+        let text = r#"
+[[sources]]
+name = "A"
+url = "https://a.example/feed"
+max = 30
+
+[[sources]]
+name = "B"
+url = "https://b.example/feed"
+"#;
+        let config = Config::from_toml(text).unwrap();
+        assert_eq!(config.sources[0].max, Some(30));
+        assert_eq!(config.sources[1].max, None);
     }
 
     #[test]
@@ -450,6 +473,7 @@ mod tests {
         assert_eq!(config.theme, ThemeName::Gruvbox);
         assert_eq!(config.layout.feeds_percent, 35);
         assert_eq!(config.sources.len(), 1);
+        assert_eq!(config.sources[0].max, None);
         assert_eq!(config.colors, ColorMode::Auto);
         assert_eq!(config.max_articles, 50);
     }

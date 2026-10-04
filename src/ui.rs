@@ -391,6 +391,7 @@ mod tests {
             sources: vec![Source {
                 name: Some("F".to_string()),
                 url: "https://example.org/feed".to_string(),
+                max: None,
             }],
             ..Config::default()
         };
@@ -456,6 +457,7 @@ mod tests {
             sources: vec![Source {
                 name: Some("F".to_string()),
                 url: "https://example.org/feed".to_string(),
+                max: None,
             }],
             ..Config::default()
         };

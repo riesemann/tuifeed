@@ -1,8 +1,12 @@
-//! Regression: the *last* article of a real feed must be shown in full, not just its heading.
+//! Rendering regression tests against the real payloads in `fixtures/`.
 //!
-//! Requests: "der letzte artikel zeigt nur noch die überschrift -> soll ganz angezeigt werden".
-//! Uses the real payloads in `fixtures/` and several terminal heights, so a wrong scroll rule
-//! that pins the selected article's *first* line to the bottom row is caught again.
+//! 1. The *last* article must be shown in full, not just its heading
+//!    ("der letzte artikel zeigt nur noch die überschrift -> soll ganz angezeigt werden").
+//! 2. A source's own `max` caps the list that is actually rendered
+//!    ("ich habe max = 30 als config zu sources hinzugefügt").
+//!
+//! Both go through the public library API and a `TestBackend`, so a wrong scroll rule or a
+//! cap that is only applied in the model but not on screen is caught without a terminal.
 
 use ratatui::{Terminal, backend::TestBackend};
 use tuifeed::{
@@ -16,25 +20,35 @@ const HEISE: &[u8] = include_bytes!("../fixtures/heise_atom.xml");
 const BBC: &[u8] = include_bytes!("../fixtures/bbc_rss.xml");
 const TAGESSCHAU: &[u8] = include_bytes!("../fixtures/tagesschau_rss.xml");
 
-/// Render the app with `feed` open and its last article selected.
-fn screen_with_last_article_selected(feed: Feed, height: u16) -> Vec<String> {
-    let count = feed.articles.len();
-    let config = Config {
+/// A config with one source; `max` is the caller's, the global cap is switched off.
+fn config_with_source_max(max: Option<usize>) -> Config {
+    Config {
         colors: ColorMode::TrueColor,
-        max_articles: 0, // show the whole feed, so the very last entry is reachable
+        max_articles: 0, // so a source's own `max` is what decides
         sources: vec![Source {
             name: Some("Test".to_string()),
             url: "https://example.org/feed".to_string(),
+            max,
         }],
         ..Config::default()
-    };
+    }
+}
+
+/// Render the app and return the screen row by row.
+fn screen(
+    feed: Feed,
+    config: Config,
+    height: u16,
+    select: impl FnOnce(&mut App, usize),
+) -> Vec<String> {
+    let count = feed.articles.len();
     let mut app = App::new(config);
     app.apply_update(FeedUpdate {
         index: 0,
         result: Ok(feed),
     });
     app.open_selected_feed();
-    app.selected_article = count - 1;
+    select(&mut app, count);
 
     let mut terminal = Terminal::new(TestBackend::new(100, height)).unwrap();
     terminal.draw(|frame| ui::draw(frame, &app)).unwrap();
@@ -42,6 +56,10 @@ fn screen_with_last_article_selected(feed: Feed, height: u16) -> Vec<String> {
     (0..height)
         .map(|y| (0..100).map(|x| buffer[(x, y)].symbol()).collect())
         .collect()
+}
+
+fn head(text: &str, chars: usize) -> String {
+    text.chars().take(chars).collect()
 }
 
 #[test]
@@ -54,18 +72,19 @@ fn the_last_article_of_every_fixture_is_shown_in_full_at_every_height() {
 
     for (name, feed) in feeds {
         let last = feed.articles.last().unwrap().clone();
-        let title_probe: String = last.title.chars().take(12).collect();
-        let teaser_probe: String = last
-            .teaser
-            .as_deref()
-            .unwrap_or_default()
-            .chars()
-            .take(24)
-            .collect();
+        let title_probe = head(&last.title, 12);
+        let teaser_probe = head(last.teaser.as_deref().unwrap_or_default(), 24);
 
-        // 10 rows is the smallest window the harness uses; taller terminals must behave the same.
+        // 10 rows is the smallest window the pty harness uses; taller terminals must match.
         for height in [10u16, 16, 24, 30, 50] {
-            let rows = screen_with_last_article_selected(feed.clone(), height);
+            let rows = screen(
+                feed.clone(),
+                config_with_source_max(None),
+                height,
+                |app, count| {
+                    app.selected_article = count - 1;
+                },
+            );
 
             assert!(
                 rows.iter().any(|row| row.contains(&title_probe)),
@@ -81,4 +100,28 @@ fn the_last_article_of_every_fixture_is_shown_in_full_at_every_height() {
             }
         }
     }
+}
+
+#[test]
+fn a_source_max_caps_the_rendered_article_list() {
+    let feed = feed::parse_feed(HEISE).unwrap();
+    assert!(feed.articles.len() > 5, "the fixture needs a few articles");
+
+    // The newest article stays in the list, a later one is cut off (feed order = newest first).
+    let kept = head(&feed.articles[0].title, 12);
+    let dropped = head(&feed.articles[5].title, 12);
+    assert_ne!(kept, dropped, "pick two distinguishable probes");
+
+    let rows = screen(feed, config_with_source_max(Some(3)), 30, |_, _| {});
+
+    assert!(
+        rows.iter().any(|row| row.contains(&kept)),
+        "the newest article must be listed:\n{}",
+        rows.join("\n")
+    );
+    assert!(
+        !rows.iter().any(|row| row.contains(&dropped)),
+        "`max = 3` must keep the list short:\n{}",
+        rows.join("\n")
+    );
 }

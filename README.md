@@ -34,6 +34,7 @@ feeds_percent = 35  # Breite der Feed-Spalte in Prozent
 [[sources]]
 name = "Heise"
 url = "https://www.heise.de/rss/heise-atom.xml"
+max = 30            # optional: Artikel für diesen Feed (überschreibt max_articles, 0 = alle)
 ```
 
 - `colors`: `auto` erkennt die Terminal-Fähigkeit (`COLORTERM`, `TERM`); `truecolor`,
@@ -41,6 +42,9 @@ url = "https://www.heise.de/rss/heise-atom.xml"
   Palettenfarben auf den nächstliegenden 256er- bzw. 16er-Eintrag abgebildet.
 - `max_articles`: begrenzt nur die Anzeige; geparst wird der ganze Feed (der Zähler
   in der Feed-Spalte zeigt weiterhin die Gesamtzahl).
+- `max` (je `[[sources]]`-Block): eigener Deckel für diesen Feed und hat Vorrang vor
+  `max_articles`. Gekürzt wird von **oben**, also bleiben die neuesten Artikel stehen
+  (Feed-Reihenfolge). `0` = alle.
 
 ## Scrollen in der Artikelspalte
 
