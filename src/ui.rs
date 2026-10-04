@@ -3,7 +3,7 @@
 use chrono::{DateTime, Local, Utc};
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, List, ListItem, Paragraph},
@@ -23,16 +23,45 @@ pub fn draw(frame: &mut Frame, app: &App) {
         frame.area(),
     );
 
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(1)])
+        .split(frame.area());
+    let content = rows[0];
+    let footer = rows[1];
+
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Percentage(app.config.layout.feeds()),
             Constraint::Percentage(app.config.layout.articles()),
         ])
-        .split(frame.area());
+        .split(content);
 
     draw_feeds(frame, chunks[0], app, &theme);
     draw_articles(frame, chunks[1], app, &theme);
+    draw_footer(frame, footer, app, &theme);
+}
+
+/// The bottom line: the key help on the left, the status on the right.
+fn draw_footer(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
+    const HELP: &str = " q beenden · ↑↓ wählen · ←→/Tab Spalte · Enter öffnen · r neu laden";
+
+    let cells = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+        .split(area);
+
+    frame.render_widget(
+        Paragraph::new(HELP).style(Style::default().fg(theme.loading).bg(theme.bg)),
+        cells[0],
+    );
+    frame.render_widget(
+        Paragraph::new(format!("{} ", app.status()))
+            .alignment(Alignment::Right)
+            .style(Style::default().fg(theme.count).bg(theme.bg)),
+        cells[1],
+    );
 }
 
 /// The left column: one row per feed with its load state and cursor.

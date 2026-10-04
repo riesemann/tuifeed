@@ -171,6 +171,35 @@ impl App {
             .map(FeedSlot::label)
     }
 
+    /// A short status for the footer.
+    pub fn status(&self) -> String {
+        if self.feeds.is_empty() {
+            return "Keine Feeds konfiguriert.".to_string();
+        }
+        let loading = self
+            .feeds
+            .iter()
+            .filter(|slot| matches!(slot.state, FeedState::Loading))
+            .count();
+        let failed = self
+            .feeds
+            .iter()
+            .filter(|slot| matches!(slot.state, FeedState::Failed(_)))
+            .count();
+        let articles: usize = self.feeds.iter().map(|slot| slot.articles().len()).sum();
+
+        if loading > 0 {
+            format!("Lade Feeds … ({loading} von {})", self.feeds.len())
+        } else if failed > 0 {
+            format!(
+                "{} Feeds · {failed} fehlgeschlagen · {articles} Artikel",
+                self.feeds.len()
+            )
+        } else {
+            format!("{} Feeds · {articles} Artikel", self.feeds.len())
+        }
+    }
+
     /// Move the cursor in the focused column by `delta` rows.
     pub fn move_selection(&mut self, delta: isize) {
         match self.focus {
@@ -391,6 +420,42 @@ mod tests {
     fn the_config_defaults_to_gruvbox() {
         let app = App::new(config_with_sources());
         assert_eq!(app.config.theme, ThemeName::Gruvbox);
+    }
+
+    #[test]
+    fn the_status_counts_feeds_and_articles() {
+        let app = loaded_app();
+        assert_eq!(app.status(), "2 Feeds · 8 Artikel");
+    }
+
+    #[test]
+    fn the_status_says_while_feeds_are_still_loading() {
+        let app = App::new(config_with_sources());
+        assert!(app.status().contains("Lade Feeds"), "got: {}", app.status());
+    }
+
+    #[test]
+    fn the_status_names_the_failures() {
+        let mut app = App::new(config_with_sources());
+        app.apply_update(FeedUpdate {
+            index: 0,
+            result: Err("HTTP 500".to_string()),
+        });
+        app.apply_update(FeedUpdate {
+            index: 1,
+            result: Ok(feed("Zweiter", 5)),
+        });
+        assert!(
+            app.status().contains("fehlgeschlagen"),
+            "got: {}",
+            app.status()
+        );
+    }
+
+    #[test]
+    fn the_status_of_an_empty_configuration_says_so() {
+        let app = App::new(Config::default());
+        assert_eq!(app.status(), "Keine Feeds konfiguriert.");
     }
 
     #[test]
