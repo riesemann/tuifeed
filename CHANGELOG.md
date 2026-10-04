@@ -1,0 +1,57 @@
+# Changelog
+
+All notable changes to tuifeed are documented in this file. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+The user interface and the command-line messages are in German; the code, comments, this changelog
+and the README are in English.
+
+## 1.0.0 - 2026-10-04
+
+First release. Every milestone of the project's specification (M0–M6) is implemented, together with
+the follow-up features, and the behaviour is covered by tests.
+
+### Added
+
+**Feeds and articles**
+
+- Two-column layout: the configured feeds on the left, the articles of the opened feed on the right.
+- Every feed is fetched at start and on demand (`r`); no polling.
+- RSS 2.0 and Atom are parsed with `feed-rs`; an article shows a bold title, its date in local time
+  and a plain-text teaser, wrapped to the column width.
+- `Enter` in the article column opens the selected article in the default browser.
+- A feed that fails keeps its reason and is named in the status line; the article column shows it.
+
+**Configuration** — `~/.config/tuifeed/config.toml`; a commented template is written on first start
+
+- `theme` × `mode`: Gruvbox, Nord, Dracula (Alucard) and Catppuccin (Mocha/Latte), each in a light
+  and a dark variant, defined as RGB palettes and used through semantic tokens.
+- `colors`: `auto` (detected from `COLORTERM`/`TERM`), `truecolor`, `256` or `16`. Without a 24-bit
+  terminal the palette colours are mapped to the nearest 256-colour or basic colour.
+- `max_articles` as a global fallback and `max` per `[[sources]]` entry cap how many articles are
+  shown. `0` means no cap; feeds are cut from the top, so the newest entries stay.
+- `[layout] feeds_percent` sets the width of the feed column.
+- The number in brackets in the feed column is the count actually used: the feed's own `max`,
+  otherwise what was delivered — never more than the feed offers.
+
+**Keys**
+
+- `↑`/`↓` select an entry, `←`/`→` and `Tab`/`Shift-Tab` switch columns, `Enter` opens a feed or an
+  article, `r` reloads, `/` searches (live filter, `Enter` commits, `Esc` discards), `Esc` also
+  drops a committed filter, `?` toggles the key help overlay, `q` quits.
+- The selected row is highlighted with a background band across the full column width while the
+  title, date and teaser keep their own colours; the focused column prints in bold.
+- The article column scrolls so that the selected article is visible in full; while more articles
+  follow, the first line of the next one stays in view. A scrollbar appears when the list does not
+  fit into the column, and its thumb reaches the bottom.
+
+**Command line**
+
+- `-f, --feed <NR|NAME>` starts with a single feed: no feed list, the articles use the whole window.
+  The feed is addressed by its number (as shown by `--list`) or by its configured name.
+- `-l, --list` prints the configured feeds (number, name and `max`) and exits; it starts no UI and
+  fetches nothing.
+- `-V, --version` prints the version, `-h, --help` the usage.
+- A wrong command line reports the problem on stderr and exits with code 2 — before the terminal is
+  taken over, so the message stays readable.

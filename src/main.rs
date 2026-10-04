@@ -40,6 +40,10 @@ fn main() -> Result<()> {
         print!("{}", cli::USAGE);
         return Ok(());
     }
+    if options.version {
+        println!("{}", cli::VERSION);
+        return Ok(());
+    }
     // `--list` only reports the configured feeds; it starts no UI (and needs no fetch).
     if options.list {
         print!("{}", Config::load().describe());

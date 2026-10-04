@@ -10,6 +10,8 @@ pub struct Options {
     pub feed: Option<String>,
     /// Print the configured feeds and stop.
     pub list: bool,
+    /// Print the version and stop.
+    pub version: bool,
     /// The user asked for the usage text.
     pub help: bool,
 }
@@ -25,8 +27,12 @@ Optionen:
   -f, --feed <NR|NAME>   nur diesen Feed anzeigen (Nummer aus --list oder Name),
                          ohne Feed-Liste
   -l, --list             die konfigurierten Feeds auflisten und beenden
+  -V, --version          Version anzeigen
   -h, --help             diese Hilfe
 ";
+
+/// The version line, e.g. `tuifeed 1.0.0`.
+pub const VERSION: &str = concat!("tuifeed ", env!("CARGO_PKG_VERSION"));
 
 /// Parse the arguments after the program name.
 ///
@@ -37,6 +43,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Options, String>
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => options.help = true,
+            "-V" | "--version" => options.version = true,
             "-l" | "--list" => options.list = true,
             "-f" | "--feed" => {
                 let value = args
@@ -78,11 +85,20 @@ mod tests {
         let expected = Options {
             feed: Some("Heise".to_string()),
             list: false,
+            version: false,
             help: false,
         };
         assert_eq!(parse_args(&["--feed", "Heise"]).unwrap(), expected);
         assert_eq!(parse_args(&["-f", "Heise"]).unwrap(), expected);
         assert_eq!(parse_args(&["--feed=Heise"]).unwrap(), expected);
+    }
+
+    #[test]
+    fn version_is_recognised_and_names_the_package() {
+        assert!(parse_args(&["-V"]).unwrap().version);
+        assert!(parse_args(&["--version"]).unwrap().version);
+        assert!(!parse_args(&[]).unwrap().version);
+        assert_eq!(VERSION, format!("tuifeed {}", env!("CARGO_PKG_VERSION")));
     }
 
     #[test]
