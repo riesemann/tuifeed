@@ -92,6 +92,12 @@ pub struct App {
     pub open_feed: Option<usize>,
     /// An address the user asked to open in the browser (taken by the main loop).
     pub pending_open: Option<String>,
+    /// Whether the key help overlay is shown.
+    pub show_help: bool,
+    /// The text being typed while the search is open (`None` = not searching).
+    pub search: Option<String>,
+    /// The committed search filter applied to the article list.
+    pub filter: String,
 }
 
 impl Default for App {
@@ -121,6 +127,9 @@ impl App {
             selected_article: 0,
             open_feed: None,
             pending_open: None,
+            show_help: false,
+            search: None,
+            filter: String::new(),
         }
     }
 
@@ -156,12 +165,81 @@ impl App {
         self.focus = Focus::Articles;
     }
 
-    /// The articles shown in the right column (of the opened feed).
-    pub fn articles(&self) -> &[Article] {
-        self.open_feed
-            .and_then(|index| self.feeds.get(index))
-            .map(FeedSlot::articles)
-            .unwrap_or(&[])
+    /// The articles actually shown in the right column.
+    ///
+    /// The opened feed's articles, capped at `max_articles` (`0` = all) and filtered by
+    /// the current search needle (matches the title or the teaser, case-insensitive).
+    pub fn visible_articles(&self) -> Vec<&Article> {
+        let Some(slot) = self.open_feed.and_then(|index| self.feeds.get(index)) else {
+            return Vec::new();
+        };
+        let all = slot.articles();
+        let limit = if self.config.max_articles == 0 {
+            all.len()
+        } else {
+            self.config.max_articles
+        };
+        let needle = self.needle();
+        all.iter()
+            .take(limit)
+            .filter(|article| article_matches(article, &needle))
+            .collect()
+    }
+
+    /// The needle currently filtering the article list.
+    fn needle(&self) -> String {
+        match &self.search {
+            Some(text) => text.to_lowercase(),
+            None => self.filter.to_lowercase(),
+        }
+    }
+
+    /// The committed search filter (for the UI).
+    pub fn filter(&self) -> &str {
+        &self.filter
+    }
+
+    /// Begin typing a search.
+    fn start_search(&mut self) {
+        self.search = Some(String::new());
+        self.selected_article = 0;
+    }
+
+    /// Keep the typed filter and return to the list.
+    fn commit_search(&mut self) {
+        if let Some(text) = self.search.take() {
+            self.filter = text;
+        }
+        self.selected_article = 0;
+        self.focus = Focus::Articles;
+    }
+
+    /// Drop the search: nothing typed, nothing filtered.
+    fn cancel_search(&mut self) {
+        self.search = None;
+        self.filter.clear();
+        self.selected_article = 0;
+    }
+
+    /// Handle a key while the search is open.
+    fn on_search_key(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Esc => self.cancel_search(),
+            KeyCode::Enter => self.commit_search(),
+            KeyCode::Backspace => {
+                if let Some(text) = &mut self.search {
+                    text.pop();
+                }
+                self.selected_article = 0;
+            }
+            KeyCode::Char(ch) => {
+                if let Some(text) = &mut self.search {
+                    text.push(ch);
+                }
+                self.selected_article = 0;
+            }
+            _ => {}
+        }
     }
 
     /// The name of the opened feed, if any.
@@ -207,7 +285,8 @@ impl App {
                 self.selected_feed = step(self.selected_feed, delta, self.feeds.len());
             }
             Focus::Articles => {
-                self.selected_article = step(self.selected_article, delta, self.articles().len());
+                self.selected_article =
+                    step(self.selected_article, delta, self.visible_articles().len());
             }
         }
     }
@@ -226,7 +305,7 @@ impl App {
     /// Does nothing if there is no open feed, no article, or the article has no link.
     pub fn queue_open_selected_article(&mut self) {
         if let Some(link) = self
-            .articles()
+            .visible_articles()
             .get(self.selected_article)
             .and_then(|article| article.link.clone())
         {
@@ -241,12 +320,19 @@ impl App {
 
     /// Handle a key press.
     pub fn on_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
+        // While the search is open, keys type into it.
+        if self.search.is_some() {
+            self.on_search_key(code);
+            return;
+        }
         match code {
             KeyCode::Char('q') => self.should_quit = true,
             KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
                 self.should_quit = true;
             }
             KeyCode::Char('r') => self.reload = true,
+            KeyCode::Char('?') => self.show_help = !self.show_help,
+            KeyCode::Char('/') => self.start_search(),
             KeyCode::Up => self.move_selection(-1),
             KeyCode::Down => self.move_selection(1),
             KeyCode::Left => self.focus_feeds(),
@@ -262,6 +348,18 @@ impl App {
             _ => {}
         }
     }
+}
+
+/// Whether an article matches the (lowercase) search needle.
+fn article_matches(article: &Article, needle: &str) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    article.title.to_lowercase().contains(needle)
+        || article
+            .teaser
+            .as_deref()
+            .is_some_and(|teaser| teaser.to_lowercase().contains(needle))
 }
 
 /// Move an index by `delta`, clamped into `0..len` (an empty list keeps index 0).
@@ -476,7 +574,7 @@ mod tests {
         app.on_key(KeyCode::Enter, KeyModifiers::NONE);
         assert_eq!(app.open_feed, Some(1));
         assert_eq!(app.focus, Focus::Articles);
-        assert_eq!(app.articles().len(), 5);
+        assert_eq!(app.visible_articles().len(), 5);
         assert_eq!(app.open_feed_label().as_deref(), Some("Zweiter"));
     }
 
@@ -484,7 +582,7 @@ mod tests {
     fn the_article_cursor_stays_within_the_open_feed() {
         let mut app = loaded_app();
         app.open_selected_feed(); // opens feed 0 (3 articles)
-        assert_eq!(app.articles().len(), 3);
+        assert_eq!(app.visible_articles().len(), 3);
         app.move_selection(1);
         app.move_selection(1);
         app.move_selection(1); // past the end
@@ -545,8 +643,69 @@ mod tests {
     #[test]
     fn without_an_open_feed_there_are_no_articles() {
         let app = loaded_app();
-        assert!(app.articles().is_empty());
+        assert!(app.visible_articles().is_empty());
         assert_eq!(app.open_feed_label(), None);
+    }
+
+    #[test]
+    fn question_mark_toggles_the_help() {
+        let mut app = App::default();
+        app.on_key(KeyCode::Char('?'), KeyModifiers::NONE);
+        assert!(app.show_help);
+        app.on_key(KeyCode::Char('?'), KeyModifiers::NONE);
+        assert!(!app.show_help);
+    }
+
+    #[test]
+    fn the_article_limit_caps_the_visible_list() {
+        let mut app = App::new(config_with_sources());
+        app.apply_update(FeedUpdate {
+            index: 0,
+            result: Ok(feed("Viele", 10)),
+        });
+        app.config.max_articles = 4;
+        app.open_selected_feed();
+        assert_eq!(app.visible_articles().len(), 4);
+
+        app.config.max_articles = 0; // 0 means "all"
+        assert_eq!(app.visible_articles().len(), 10);
+    }
+
+    #[test]
+    fn the_search_filters_the_visible_articles_while_typing() {
+        let mut app = loaded_app();
+        app.open_selected_feed(); // 3 articles, titled "Artikel 0".."Artikel 2"
+        app.on_key(KeyCode::Char('/'), KeyModifiers::NONE);
+        assert_eq!(app.search.as_deref(), Some(""));
+        app.on_key(KeyCode::Char('1'), KeyModifiers::NONE);
+        assert_eq!(app.visible_articles().len(), 1);
+        assert_eq!(app.visible_articles()[0].title, "Artikel 1");
+    }
+
+    #[test]
+    fn enter_keeps_the_filter_and_esc_drops_it() {
+        let mut app = loaded_app();
+        app.open_selected_feed();
+        app.on_key(KeyCode::Char('/'), KeyModifiers::NONE);
+        app.on_key(KeyCode::Char('2'), KeyModifiers::NONE);
+        app.on_key(KeyCode::Enter, KeyModifiers::NONE);
+        assert!(app.search.is_none());
+        assert_eq!(app.filter(), "2");
+        assert_eq!(app.visible_articles().len(), 1);
+
+        app.on_key(KeyCode::Char('/'), KeyModifiers::NONE);
+        app.on_key(KeyCode::Esc, KeyModifiers::NONE);
+        assert!(app.filter().is_empty());
+        assert_eq!(app.visible_articles().len(), 3);
+    }
+
+    #[test]
+    fn the_search_does_not_quit_the_program() {
+        let mut app = loaded_app();
+        app.on_key(KeyCode::Char('/'), KeyModifiers::NONE);
+        app.on_key(KeyCode::Char('q'), KeyModifiers::NONE);
+        assert!(!app.should_quit);
+        assert_eq!(app.search.as_deref(), Some("q"));
     }
 
     #[test]

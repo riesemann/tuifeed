@@ -6,7 +6,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
 };
 
 use crate::app::{App, FeedState, Focus, scroll_offset};
@@ -15,7 +15,8 @@ use crate::theme::{self, Theme};
 
 /// Draw the whole interface.
 pub fn draw(frame: &mut Frame, app: &App) {
-    let theme = theme::theme(app.config.theme, app.config.mode);
+    let depth = theme::depth_for(app.config.colors);
+    let theme = theme::theme(app.config.theme, app.config.mode, depth);
 
     // Paint the window background so light and dark themes actually differ.
     frame.render_widget(
@@ -41,15 +42,69 @@ pub fn draw(frame: &mut Frame, app: &App) {
     draw_feeds(frame, chunks[0], app, &theme);
     draw_articles(frame, chunks[1], app, &theme);
     draw_footer(frame, footer, app, &theme);
+    if app.show_help {
+        draw_help(frame, content, &theme);
+    }
 }
 
-/// The bottom line: the key help on the left, the status on the right.
+/// A centred overlay with the key bindings.
+fn draw_help(frame: &mut Frame, area: Rect, theme: &Theme) {
+    let lines = vec![
+        Line::from("Tastenbelegung").style(
+            Style::default()
+                .fg(theme.title)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Line::from(""),
+        Line::from("  ↑ / ↓            Eintrag wählen"),
+        Line::from("  ← / → , Tab      Spalte wechseln"),
+        Line::from("  Enter            Feed öffnen / Artikel im Browser"),
+        Line::from("  r                Feeds neu laden"),
+        Line::from("  /                Artikel suchen (Enter übernehmen, Esc abbrechen)"),
+        Line::from("  ?                Diese Hilfe schließen"),
+        Line::from("  q                Beenden"),
+    ];
+
+    let width = 64.min(area.width);
+    let height = (lines.len() as u16 + 2).min(area.height);
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+
+    frame.render_widget(Clear, popup);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title("Hilfe")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.border_focused)),
+            )
+            .style(Style::default().bg(theme.bg).fg(theme.fg)),
+        popup,
+    );
+}
+
+/// The bottom line: the search prompt, or the key help and the status.
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
-    const HELP: &str = " q beenden · ↑↓ wählen · ←→/Tab Spalte · Enter öffnen · r neu laden";
+    if let Some(text) = &app.search {
+        let prompt = format!(" Suche: {text}_      (Enter übernehmen · Esc abbrechen)");
+        frame.render_widget(
+            Paragraph::new(prompt).style(Style::default().fg(theme.title).bg(theme.bg)),
+            area,
+        );
+        return;
+    }
+
+    const HELP: &str =
+        " q beenden · ↑↓ wählen · ←→/Tab Spalte · Enter öffnen · r laden · / suchen · ? Hilfe";
 
     let cells = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
         .split(area);
 
     frame.render_widget(
@@ -113,15 +168,21 @@ fn draw_feeds(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
 fn draw_articles(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     let focused = app.focus == Focus::Articles;
     let title = match app.open_feed_label() {
-        Some(label) => format!("Artikel — {label}"),
+        Some(label) if app.filter().is_empty() => format!("Artikel — {label}"),
+        Some(label) => format!("Artikel — {label}  ·  Filter: {}", app.filter()),
         None => "Artikel".to_string(),
     };
     let block = column_block(theme, &title, focused);
 
-    let articles = app.articles();
+    let articles = app.visible_articles();
     if articles.is_empty() {
+        let hint = if app.open_feed_label().is_some() {
+            "Keine Artikel (oder kein Treffer). — / löscht den Filter."
+        } else {
+            "Feed links auswählen und mit Enter öffnen."
+        };
         frame.render_widget(
-            Paragraph::new("Feed links auswählen und mit Enter öffnen.")
+            Paragraph::new(hint)
                 .block(block)
                 .style(Style::default().fg(theme.loading).bg(theme.bg)),
             area,
@@ -135,7 +196,7 @@ fn draw_articles(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     let width = area.width.saturating_sub(2) as usize;
     let mut lines: Vec<Line> = Vec::new();
     let mut selected_start = 0usize;
-    for (index, article) in articles.iter().enumerate() {
+    for (index, article) in articles.iter().copied().enumerate() {
         let selected = index == app.selected_article;
         if selected {
             selected_start = lines.len();
@@ -288,7 +349,7 @@ mod tests {
     use crate::config::{Mode, ThemeName};
 
     fn test_theme() -> Theme {
-        theme::theme(ThemeName::Gruvbox, Mode::Dark)
+        theme::theme(ThemeName::Gruvbox, Mode::Dark, theme::ColorDepth::TrueColor)
     }
 
     fn article(title: &str, date: Option<DateTime<Utc>>, teaser: Option<&str>) -> Article {

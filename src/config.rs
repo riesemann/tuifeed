@@ -113,6 +113,67 @@ impl<'de> Deserialize<'de> for Mode {
     }
 }
 
+/// How many colours the terminal is allowed to use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColorMode {
+    /// Detect from the environment (`COLORTERM`, `TERM`).
+    Auto,
+    /// 24-bit colour.
+    TrueColor,
+    /// The 256-colour palette.
+    Ansi256,
+    /// The 16 basic colours.
+    Ansi16,
+}
+
+impl ColorMode {
+    pub const DEFAULT: ColorMode = ColorMode::Auto;
+
+    pub const ALL: [ColorMode; 4] = [
+        ColorMode::Auto,
+        ColorMode::TrueColor,
+        ColorMode::Ansi256,
+        ColorMode::Ansi16,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ColorMode::Auto => "auto",
+            ColorMode::TrueColor => "truecolor",
+            ColorMode::Ansi256 => "256",
+            ColorMode::Ansi16 => "16",
+        }
+    }
+
+    /// Parse a name; an unknown name falls back to `auto`.
+    pub fn from_str_lossy(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "truecolor" | "24bit" | "24-bit" => ColorMode::TrueColor,
+            "256" | "ansi256" | "256color" => ColorMode::Ansi256,
+            "16" | "ansi16" | "16color" => ColorMode::Ansi16,
+            _ => ColorMode::DEFAULT,
+        }
+    }
+}
+
+impl fmt::Display for ColorMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl Serialize for ColorMode {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ColorMode {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(Self::from_str_lossy(&String::deserialize(deserializer)?))
+    }
+}
+
 /// The split of the two columns, in percent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -161,8 +222,17 @@ pub struct Source {
 pub struct Config {
     pub theme: ThemeName,
     pub mode: Mode,
+    /// How many colours to use (see [`ColorMode`]).
+    pub colors: ColorMode,
+    /// Most articles to show per feed (`0` = all).
+    pub max_articles: usize,
     pub layout: Layout,
     pub sources: Vec<Source>,
+}
+
+impl Config {
+    /// The default article limit per feed.
+    pub const DEFAULT_MAX_ARTICLES: usize = 50;
 }
 
 impl Default for Config {
@@ -170,6 +240,8 @@ impl Default for Config {
         Self {
             theme: ThemeName::DEFAULT,
             mode: Mode::DEFAULT,
+            colors: ColorMode::DEFAULT,
+            max_articles: Self::DEFAULT_MAX_ARTICLES,
             layout: Layout::default(),
             sources: Vec::new(),
         }
@@ -261,10 +333,15 @@ impl Config {
 /// The commented file written on the first start.
 const TEMPLATE: &str = r#"# tuifeed configuration
 #
-# theme: gruvbox | nord | dracula | catppuccin
-# mode:  light | dark
+# theme:  gruvbox | nord | dracula | catppuccin
+# mode:   light | dark
+# colors: auto | truecolor | 256 | 16
 theme = "gruvbox"
 mode = "dark"
+colors = "auto"
+
+# Most articles to show per feed (0 = all).
+max_articles = 50
 
 [layout]
 # Width of the left (feeds) column in percent; the right column takes the rest.
@@ -293,6 +370,8 @@ mod tests {
         assert_eq!(config.mode, Mode::Dark);
         assert_eq!(config.layout.feeds(), 35);
         assert_eq!(config.layout.articles(), 65);
+        assert_eq!(config.colors, ColorMode::Auto);
+        assert_eq!(config.max_articles, Config::DEFAULT_MAX_ARTICLES);
         assert!(config.sources.is_empty());
     }
 
@@ -331,6 +410,8 @@ mod tests {
         let config = Config {
             theme: ThemeName::Catppuccin,
             mode: Mode::Light,
+            colors: ColorMode::Ansi256,
+            max_articles: 20,
             layout: Layout { feeds_percent: 40 },
             sources: vec![Source {
                 name: Some("Beispiel".to_string()),
@@ -369,5 +450,20 @@ mod tests {
         assert_eq!(config.theme, ThemeName::Gruvbox);
         assert_eq!(config.layout.feeds_percent, 35);
         assert_eq!(config.sources.len(), 1);
+        assert_eq!(config.colors, ColorMode::Auto);
+        assert_eq!(config.max_articles, 50);
+    }
+
+    #[test]
+    fn the_article_limit_and_colour_mode_are_read() {
+        let config = Config::from_toml("max_articles = 7\ncolors = \"256\"\n").unwrap();
+        assert_eq!(config.max_articles, 7);
+        assert_eq!(config.colors, ColorMode::Ansi256);
+    }
+
+    #[test]
+    fn an_unknown_colour_mode_falls_back_to_auto() {
+        let config = Config::from_toml("colors = \"rainbow\"\n").unwrap();
+        assert_eq!(config.colors, ColorMode::Auto);
     }
 }
