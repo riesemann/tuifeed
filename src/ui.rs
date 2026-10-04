@@ -160,7 +160,7 @@ fn draw_feeds(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
             let line = match &slot.state {
                 FeedState::Loading => Line::from(vec![
                     Span::raw(slot.label()),
-                    Span::raw("  lädt …").style(Style::default().fg(theme.loading)),
+                    Span::raw("  loading …").style(Style::default().fg(theme.loading)),
                 ]),
                 FeedState::Loaded(_) => Line::from(vec![
                     Span::raw(slot.label()),
