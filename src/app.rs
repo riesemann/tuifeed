@@ -2,6 +2,8 @@
 
 use crossterm::event::{KeyCode, KeyModifiers};
 
+use crate::config::Config;
+
 /// Which column currently holds keyboard focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -23,19 +25,21 @@ impl Focus {
 pub struct App {
     pub should_quit: bool,
     pub focus: Focus,
+    pub config: Config,
 }
 
 impl Default for App {
     fn default() -> Self {
-        Self::new()
+        Self::new(Config::default())
     }
 }
 
 impl App {
-    pub fn new() -> Self {
+    pub fn new(config: Config) -> Self {
         Self {
             should_quit: false,
             focus: Focus::Feeds,
+            config,
         }
     }
 
@@ -63,14 +67,14 @@ mod tests {
 
     #[test]
     fn q_asks_to_quit() {
-        let mut app = App::new();
+        let mut app = App::default();
         app.on_key(KeyCode::Char('q'), KeyModifiers::NONE);
         assert!(app.should_quit);
     }
 
     #[test]
     fn tab_moves_the_focus_between_the_two_columns() {
-        let mut app = App::new();
+        let mut app = App::default();
         assert_eq!(app.focus, Focus::Feeds);
         app.on_key(KeyCode::Tab, KeyModifiers::NONE);
         assert_eq!(app.focus, Focus::Articles);
@@ -80,7 +84,7 @@ mod tests {
 
     #[test]
     fn ordinary_keys_do_not_quit() {
-        let mut app = App::new();
+        let mut app = App::default();
         app.on_key(KeyCode::Char('x'), KeyModifiers::NONE);
         assert!(!app.should_quit);
     }

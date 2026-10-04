@@ -9,11 +9,7 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
-
-mod app;
-mod ui;
-
-use app::App;
+use tuifeed::{app::App, config::Config, ui};
 
 type Tui = Terminal<CrosstermBackend<Stdout>>;
 
@@ -47,7 +43,11 @@ fn restore_terminal() -> Result<()> {
 }
 
 fn run(terminal: &mut Tui) -> Result<()> {
-    let mut app = App::new();
+    if let Err(error) = Config::write_default_if_missing() {
+        eprintln!("tuifeed: {error:#}");
+    }
+    let config = Config::load();
+    let mut app = App::new(config);
     while !app.should_quit {
         terminal.draw(|frame| ui::draw(frame, &app))?;
         if let Event::Key(key) = event::read()? {

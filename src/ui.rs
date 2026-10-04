@@ -13,7 +13,10 @@ use crate::app::{App, Focus};
 pub fn draw(frame: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
+        .constraints([
+            Constraint::Percentage(app.config.layout.feeds()),
+            Constraint::Percentage(app.config.layout.articles()),
+        ])
         .split(frame.area());
 
     draw_column(frame, chunks[0], "Feeds", app.focus == Focus::Feeds);
