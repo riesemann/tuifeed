@@ -4,16 +4,25 @@ use chrono::{DateTime, Local, Utc};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style, Stylize},
-    text::{Line, Text},
+    style::{Modifier, Style},
+    text::{Line, Span, Text},
     widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 
 use crate::app::{App, FeedState, Focus, scroll_offset};
 use crate::feed::Article;
+use crate::theme::{self, Theme};
 
 /// Draw the whole interface.
 pub fn draw(frame: &mut Frame, app: &App) {
+    let theme = theme::theme(app.config.theme, app.config.mode);
+
+    // Paint the window background so light and dark themes actually differ.
+    frame.render_widget(
+        Block::default().style(Style::default().bg(theme.bg).fg(theme.fg)),
+        frame.area(),
+    );
+
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -22,12 +31,12 @@ pub fn draw(frame: &mut Frame, app: &App) {
         ])
         .split(frame.area());
 
-    draw_feeds(frame, chunks[0], app);
-    draw_articles(frame, chunks[1], app);
+    draw_feeds(frame, chunks[0], app, &theme);
+    draw_articles(frame, chunks[1], app, &theme);
 }
 
 /// The left column: one row per feed with its load state and cursor.
-fn draw_feeds(frame: &mut Frame, area: Rect, app: &App) {
+fn draw_feeds(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     let focused = app.focus == Focus::Feeds;
     let rows: Vec<ListItem> = app
         .feeds
@@ -35,22 +44,32 @@ fn draw_feeds(frame: &mut Frame, area: Rect, app: &App) {
         .enumerate()
         .map(|(index, slot)| {
             let line = match &slot.state {
-                FeedState::Loading => Line::from(format!("{}  lädt …", slot.label())).dim(),
-                FeedState::Loaded(feed) => {
-                    Line::from(format!("{}  ({})", slot.label(), feed.articles.len()))
-                }
-                FeedState::Failed(_) => Line::from(format!("{}  ⚠ Fehler", slot.label())).red(),
+                FeedState::Loading => Line::from(vec![
+                    Span::raw(slot.label()),
+                    Span::raw("  lädt …").style(Style::default().fg(theme.loading)),
+                ]),
+                FeedState::Loaded(feed) => Line::from(vec![
+                    Span::raw(slot.label()),
+                    Span::raw(format!("  ({})", feed.articles.len()))
+                        .style(Style::default().fg(theme.count)),
+                ]),
+                FeedState::Failed(_) => Line::from(vec![
+                    Span::raw(slot.label()),
+                    Span::raw("  ⚠ Fehler").style(Style::default().fg(theme.error)),
+                ]),
             };
-            ListItem::new(line).style(row_style(index == app.selected_feed, focused))
+            ListItem::new(line).style(row_style(theme, index == app.selected_feed, focused))
         })
         .collect();
 
-    let block = column_block("Feeds", focused);
+    let block = column_block(theme, "Feeds", focused);
+    let list_style = Style::default().fg(theme.fg).bg(theme.bg);
+
     if rows.is_empty() {
         frame.render_widget(
             Paragraph::new("Keine Feeds konfiguriert.")
                 .block(block)
-                .dim(),
+                .style(Style::default().fg(theme.loading).bg(theme.bg)),
             area,
         );
         return;
@@ -58,24 +77,24 @@ fn draw_feeds(frame: &mut Frame, area: Rect, app: &App) {
 
     let offset = scroll_offset(app.selected_feed, rows.len(), inner_height(area));
     let visible = rows.into_iter().skip(offset);
-    frame.render_widget(List::new(visible).block(block), area);
+    frame.render_widget(List::new(visible).block(block).style(list_style), area);
 }
 
 /// The right column: the articles of the opened feed, each as title, date and teaser.
-fn draw_articles(frame: &mut Frame, area: Rect, app: &App) {
+fn draw_articles(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     let focused = app.focus == Focus::Articles;
     let title = match app.open_feed_label() {
         Some(label) => format!("Artikel — {label}"),
         None => "Artikel".to_string(),
     };
-    let block = column_block(&title, focused);
+    let block = column_block(theme, &title, focused);
 
     let articles = app.articles();
     if articles.is_empty() {
         frame.render_widget(
             Paragraph::new("Feed links auswählen und mit Enter öffnen.")
                 .block(block)
-                .dim(),
+                .style(Style::default().fg(theme.loading).bg(theme.bg)),
             area,
         );
         return;
@@ -92,35 +111,40 @@ fn draw_articles(frame: &mut Frame, area: Rect, app: &App) {
         if selected {
             selected_start = lines.len();
         }
-        push_article(&mut lines, article, width, selected, focused);
+        push_article(&mut lines, article, width, selected, focused, theme);
     }
 
     let offset = scroll_offset(selected_start, lines.len(), inner_height(area));
     let paragraph = Paragraph::new(Text::from(lines))
         .block(block)
+        .style(Style::default().fg(theme.fg).bg(theme.bg))
         .scroll((offset as u16, 0));
     frame.render_widget(paragraph, area);
 }
 
-/// Append the lines of one article: bold title, muted date, teaser, blank separator.
+/// Append the lines of one article: bold title, date, teaser, blank separator.
 fn push_article(
     lines: &mut Vec<Line<'static>>,
     article: &Article,
     width: usize,
     selected: bool,
     focused: bool,
+    theme: &Theme,
 ) {
-    let title_style = Style::default().add_modifier(Modifier::BOLD);
+    let title_style = Style::default()
+        .fg(theme.title)
+        .add_modifier(Modifier::BOLD);
     for part in wrap(&article.title, width) {
-        lines.push(styled_line(part, title_style, selected, focused));
+        lines.push(styled_line(part, title_style, selected, focused, theme));
     }
     if let Some(date) = format_date(article.date) {
         for part in wrap(&date, width) {
             lines.push(styled_line(
                 part,
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(theme.date),
                 selected,
                 focused,
+                theme,
             ));
         }
     }
@@ -128,9 +152,10 @@ fn push_article(
         for part in wrap(teaser, width) {
             lines.push(styled_line(
                 part,
-                Style::default().fg(Color::Gray),
+                Style::default().fg(theme.teaser),
                 selected,
                 focused,
+                theme,
             ));
         }
     }
@@ -138,8 +163,14 @@ fn push_article(
 }
 
 /// A line with a base style, plus the selection highlight when it is the cursor.
-fn styled_line(text: String, base: Style, selected: bool, focused: bool) -> Line<'static> {
-    Line::from(text).style(base.patch(row_style(selected, focused)))
+fn styled_line(
+    text: String,
+    base: Style,
+    selected: bool,
+    focused: bool,
+    theme: &Theme,
+) -> Line<'static> {
+    Line::from(text).style(base.patch(row_style(theme, selected, focused)))
 }
 
 /// Format an article date as local time `YYYY-MM-DD HH:MM`.
@@ -189,17 +220,17 @@ pub fn wrap(text: &str, width: usize) -> Vec<String> {
 }
 
 /// The style of a list row: highlighted when it is the cursor, given the focus.
-fn row_style(selected: bool, focused: bool) -> Style {
+fn row_style(theme: &Theme, selected: bool, focused: bool) -> Style {
     if !selected {
         return Style::default();
     }
+    let base = Style::default()
+        .bg(theme.selection_bg)
+        .fg(theme.selection_fg);
     if focused {
-        Style::default()
-            .bg(Color::Blue)
-            .fg(Color::White)
-            .add_modifier(Modifier::BOLD)
+        base.add_modifier(Modifier::BOLD)
     } else {
-        Style::default().bg(Color::DarkGray).fg(Color::White)
+        base
     }
 }
 
@@ -209,21 +240,27 @@ fn inner_height(area: Rect) -> usize {
 }
 
 /// A bordered column whose border shows whether it has the focus.
-fn column_block(title: &str, focused: bool) -> Block<'static> {
-    let style = if focused {
-        Style::default().fg(Color::Yellow)
+fn column_block(theme: &Theme, title: &str, focused: bool) -> Block<'static> {
+    let border = if focused {
+        theme.border_focused
     } else {
-        Style::default().fg(Color::DarkGray)
+        theme.border_unfocused
     };
     Block::default()
         .title(title.to_string())
         .borders(Borders::ALL)
-        .border_style(style)
+        .border_style(Style::default().fg(border))
+        .style(Style::default().bg(theme.bg))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{Mode, ThemeName};
+
+    fn test_theme() -> Theme {
+        theme::theme(ThemeName::Gruvbox, Mode::Dark)
+    }
 
     fn article(title: &str, date: Option<DateTime<Utc>>, teaser: Option<&str>) -> Article {
         Article {
@@ -269,6 +306,8 @@ mod tests {
 
     #[test]
     fn an_article_is_drawn_as_its_lines_plus_a_separator() {
+        let theme = test_theme();
+
         // Title + teaser + separator.
         let mut lines = Vec::new();
         push_article(
@@ -277,6 +316,7 @@ mod tests {
             40,
             false,
             false,
+            &theme,
         );
         assert_eq!(lines.len(), 3);
 
@@ -292,6 +332,7 @@ mod tests {
             40,
             false,
             false,
+            &theme,
         );
         assert_eq!(lines.len(), 4);
     }
@@ -306,10 +347,22 @@ mod tests {
             20,
             false,
             false,
+            &test_theme(),
         );
         assert!(
             lines.len() > 4,
             "a wrapped teaser must occupy several lines"
         );
+    }
+
+    #[test]
+    fn the_selected_row_uses_the_theme_selection_colours() {
+        let theme = test_theme();
+        let focused = row_style(&theme, true, true);
+        assert_eq!(focused.bg, Some(theme.selection_bg));
+        assert_eq!(focused.fg, Some(theme.selection_fg));
+
+        let plain = row_style(&theme, false, true);
+        assert_eq!(plain.bg, None);
     }
 }

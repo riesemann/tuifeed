@@ -6,4 +6,5 @@
 pub mod app;
 pub mod config;
 pub mod feed;
+pub mod theme;
 pub mod ui;
