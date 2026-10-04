@@ -4,7 +4,7 @@ All notable changes to tuifeed are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 1.0.0 - 2026-10-04
+## [1.0.0] - 2026-10-04
 
 First release. Every milestone of the project's specification (M0–M6) is implemented, together with
 the follow-up features, and the behaviour is covered by tests.
@@ -52,3 +52,5 @@ the follow-up features, and the behaviour is covered by tests.
 - `-V, --version` prints the version, `-h, --help` the usage.
 - A wrong command line reports the problem on stderr and exits with code 2 — before the terminal is
   taken over, so the message stays readable.
+
+[1.0.0]: https://github.com/riesemann/tuifeed/releases/tag/v1.0.0
