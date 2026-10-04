@@ -82,12 +82,24 @@ fn run(terminal: &mut Tui) -> Result<()> {
             }
         }
 
+        // Open the selected article in the browser, if the user asked for it.
+        if let Some(url) = app.take_pending_open() {
+            open_in_browser(&url);
+        }
+
         if app.reload {
             app.reload = false;
             start_load(&runtime, &client, &mut app, &tx);
         }
     }
     Ok(())
+}
+
+/// Hand an address to the system's default browser.
+fn open_in_browser(url: &str) {
+    if let Err(error) = open::that(url) {
+        eprintln!("tuifeed: could not open {url}: {error}");
+    }
 }
 
 /// Wait up to `timeout` for a key event.

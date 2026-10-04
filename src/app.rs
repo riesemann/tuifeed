@@ -90,6 +90,8 @@ pub struct App {
     pub selected_article: usize,
     /// The feed whose articles the right column shows (set by Enter).
     pub open_feed: Option<usize>,
+    /// An address the user asked to open in the browser (taken by the main loop).
+    pub pending_open: Option<String>,
 }
 
 impl Default for App {
@@ -118,6 +120,7 @@ impl App {
             selected_feed: 0,
             selected_article: 0,
             open_feed: None,
+            pending_open: None,
         }
     }
 
@@ -181,15 +184,30 @@ impl App {
     }
 
     /// Show the selected feed in the right column and move the focus there.
-    ///
-    /// Does nothing while the article column has the focus (Enter there opens the
-    /// article in the browser, added in a later step).
     pub fn open_selected_feed(&mut self) {
         if self.focus == Focus::Feeds && !self.feeds.is_empty() {
             self.open_feed = Some(self.selected_feed);
             self.selected_article = 0;
             self.focus = Focus::Articles;
         }
+    }
+
+    /// Ask for the selected article's address to be opened in the browser.
+    ///
+    /// Does nothing if there is no open feed, no article, or the article has no link.
+    pub fn queue_open_selected_article(&mut self) {
+        if let Some(link) = self
+            .articles()
+            .get(self.selected_article)
+            .and_then(|article| article.link.clone())
+        {
+            self.pending_open = Some(link);
+        }
+    }
+
+    /// Take a pending browser request, if any.
+    pub fn take_pending_open(&mut self) -> Option<String> {
+        self.pending_open.take()
     }
 
     /// Handle a key press.
@@ -204,7 +222,13 @@ impl App {
             KeyCode::Down => self.move_selection(1),
             KeyCode::Left => self.focus_feeds(),
             KeyCode::Right => self.focus_articles(),
-            KeyCode::Enter => self.open_selected_feed(),
+            KeyCode::Enter => {
+                if self.focus == Focus::Feeds {
+                    self.open_selected_feed();
+                } else {
+                    self.queue_open_selected_article();
+                }
+            }
             KeyCode::Tab | KeyCode::BackTab => self.toggle_column(),
             _ => {}
         }
@@ -405,12 +429,45 @@ mod tests {
     }
 
     #[test]
-    fn enter_in_the_article_column_does_not_reopen_a_feed() {
+    fn enter_in_the_article_column_asks_for_the_browser_and_keeps_the_feed() {
         let mut app = loaded_app();
         app.open_selected_feed();
-        app.on_key(KeyCode::Enter, KeyModifiers::NONE); // would open the article later
+        app.on_key(KeyCode::Enter, KeyModifiers::NONE);
         assert_eq!(app.open_feed, Some(0));
         assert_eq!(app.focus, Focus::Articles);
+        assert_eq!(app.pending_open.as_deref(), Some("https://example.org/0"));
+    }
+
+    #[test]
+    fn the_pending_open_is_taken_once() {
+        let mut app = loaded_app();
+        app.open_selected_feed();
+        app.queue_open_selected_article();
+        assert_eq!(
+            app.take_pending_open().as_deref(),
+            Some("https://example.org/0")
+        );
+        assert_eq!(app.take_pending_open(), None);
+    }
+
+    #[test]
+    fn an_article_without_a_link_does_not_ask_for_the_browser() {
+        let mut app = App::new(config_with_sources());
+        app.apply_update(FeedUpdate {
+            index: 0,
+            result: Ok(Feed {
+                title: "Ohne Link".to_string(),
+                articles: vec![Article {
+                    title: "Kein Link".to_string(),
+                    link: None,
+                    date: None,
+                    teaser: None,
+                }],
+            }),
+        });
+        app.open_selected_feed();
+        app.queue_open_selected_article();
+        assert_eq!(app.pending_open, None);
     }
 
     #[test]
