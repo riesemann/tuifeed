@@ -73,30 +73,30 @@ hinter dem Text zu enden. Hat die Spalte den Fokus, kommt zusätzlich Fettschrif
 ```
 tuifeed                     # zweispaltig: Feed-Liste links, Artikel rechts
 tuifeed -f Heise            # nur diesen Feed: keine Liste, Artikel im ganzen Fenster
-tuifeed --feed "9to5Linux"  # Name (oder URL) aus der Config, Groß-/Kleinschreibung egal
+tuifeed --feed 2            # dasselbe über die Nummer aus --list
 tuifeed -l                  # alle konfigurierten Feeds auflisten und beenden
 tuifeed --help              # Aufruf und Optionen
 ```
 
-Mit `--feed <NAME>` (`-f`) startet tuifeed direkt mit **einem** Feed: die Feed-Liste entfällt, die
+Mit `--feed <NR|NAME>` (`-f`) startet tuifeed direkt mit **einem** Feed: die Feed-Liste entfällt, die
 Artikelspalte nutzt das ganze Fenster und hat immer den Fokus. `Tab`/`←`/`→` tun dann nichts mehr,
-`↑`/`↓`, `/`, `r` und `Enter` arbeiten wie gewohnt. Ein unbekannter Name wird mit der Liste der
-konfigurierten Feeds gemeldet (Exit-Code 2), ohne das Terminal zu übernehmen.
+`↑`/`↓`, `/`, `r` und `Enter` arbeiten wie gewohnt. Angegeben wird entweder die Nummer aus `--list`
+oder der `name` aus der Config (Groß-/Kleinschreibung egal); ein Feed ohne `name` geht nur über die
+Nummer. Ohne Treffer nennt tuifeed die verfügbaren Feeds (Exit-Code 2), ohne das Terminal zu
+übernehmen.
 
-`--list` (`-l`) zeigt, welche Feeds konfiguriert sind — mit Name, URL und dem jeweiligen `max`,
-jeweils mit der Nummer aus der Datei:
+`--list` (`-l`) zeigt, welche Feeds konfiguriert sind — Nummer, Name und der jeweilige `max`:
 
 ```
 Konfiguration: /home/…/.config/tuifeed/config.toml
 
 2 Feeds:
 
-   1. Heise      https://www.heise.de/rss/heise-atom.xml   (max 50)
-   2. 9to5Linux  https://9to5linux.com/feed/atom
+   1. Heise   (max 50)
+   2. 9to5Linux
 ```
 
-Es startet keine Oberfläche und holt nichts aus dem Netz; ein Feed ohne `name` erscheint als
-`(ohne Name)` und lässt sich über seine URL ansprechen.
+Es startet keine Oberfläche und holt nichts aus dem Netz.
 
 ## Bauen und starten
 

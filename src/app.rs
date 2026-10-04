@@ -137,22 +137,29 @@ impl App {
         }
     }
 
-    /// Restrict the interface to a single configured feed, found by its name or its URL
-    /// (case-insensitive). The feed column is hidden and its articles fill the window.
+    /// Restrict the interface to a single configured feed.
     ///
-    /// Fails with a hint listing the configured feeds when no source matches.
-    pub fn restrict_to_feed(&mut self, name: &str) -> Result<(), String> {
-        let needle = name.trim().to_lowercase();
-        if needle.is_empty() {
-            return Err(format!(
-                "leerer Feed-Name. Konfiguriert: {}",
-                self.feed_names()
-            ));
+    /// The feed is found by its number (as `--list` shows it) or by its name (case-insensitive).
+    /// The feed column is hidden and its articles fill the window.
+    ///
+    /// Fails with a hint listing the configured feeds when nothing matches.
+    pub fn restrict_to_feed(&mut self, feed: &str) -> Result<(), String> {
+        let wanted = feed.trim();
+        if wanted.is_empty() {
+            return Err(format!("leere Angabe. Verfügbar: {}", self.feed_names()));
         }
-        let index = self.feeds.iter().position(|slot| {
-            slot.name.to_lowercase() == needle || slot.url.to_lowercase() == needle
-        });
-        match index {
+        let needle = wanted.to_lowercase();
+        // A name wins over a number, so a feed literally called "2" stays reachable.
+        let by_name = self
+            .feeds
+            .iter()
+            .position(|slot| !slot.name.is_empty() && slot.name.to_lowercase() == needle);
+        let by_number = wanted
+            .parse::<usize>()
+            .ok()
+            .and_then(|number| number.checked_sub(1))
+            .filter(|index| *index < self.feeds.len());
+        match by_name.or(by_number) {
             Some(index) => {
                 self.only_feed = Some(index);
                 self.selected_feed = index;
@@ -162,7 +169,7 @@ impl App {
                 Ok(())
             }
             None => Err(format!(
-                "kein Feed namens „{name}“. Konfiguriert: {}",
+                "kein Feed „{feed}“. Verfügbar: {}",
                 self.feed_names()
             )),
         }
@@ -173,19 +180,21 @@ impl App {
         self.only_feed.is_none()
     }
 
-    /// The configured feed names (or URLs where no name is set), for messages.
+    /// The configured feeds as `1 = Heise, 2 = (ohne Name)`, for messages.
     pub fn feed_names(&self) -> String {
         if self.feeds.is_empty() {
             return "(keine)".to_string();
         }
         self.feeds
             .iter()
-            .map(|slot| {
-                if slot.name.is_empty() {
-                    slot.url.clone()
+            .enumerate()
+            .map(|(index, slot)| {
+                let label = if slot.name.trim().is_empty() {
+                    "(ohne Name)"
                 } else {
-                    slot.name.clone()
-                }
+                    slot.name.as_str()
+                };
+                format!("{} = {label}", index + 1)
             })
             .collect::<Vec<_>>()
             .join(", ")
@@ -972,11 +981,53 @@ mod tests {
     }
 
     #[test]
-    fn a_feed_can_also_be_pinned_by_its_url() {
+    fn a_feed_can_be_pinned_by_its_number() {
         let mut app = loaded_app();
-        app.restrict_to_feed("https://B.example/feed").unwrap();
+        // The numbers are the ones `--list` prints, i.e. 1-based.
+        app.restrict_to_feed("2").unwrap();
         assert_eq!(app.only_feed, Some(1));
         assert_eq!(app.visible_articles().len(), 5);
+
+        // Out of range (and zero) is an error, not a silent fallback.
+        let mut app = loaded_app();
+        assert!(app.restrict_to_feed("0").is_err());
+        assert!(app.restrict_to_feed("3").is_err());
+        assert!(app.restrict_to_feed("-1").is_err());
+        assert_eq!(app.only_feed, None);
+    }
+
+    #[test]
+    fn a_name_beats_a_number_that_looks_like_one() {
+        let config = Config {
+            sources: vec![
+                Source {
+                    name: Some("2".to_string()),
+                    url: "https://a.example/feed".to_string(),
+                    max: None,
+                },
+                Source {
+                    name: Some("Zweiter".to_string()),
+                    url: "https://b.example/feed".to_string(),
+                    max: None,
+                },
+            ],
+            ..Config::default()
+        };
+        let mut app = App::new(config);
+        app.restrict_to_feed("2").unwrap();
+        // The feed *named* "2" is the first one, not the second.
+        assert_eq!(app.only_feed, Some(0));
+    }
+
+    #[test]
+    fn a_nameless_feed_is_reachable_by_its_number() {
+        let mut app = loaded_app(); // feed 1 has no configured name
+        app.restrict_to_feed("2").unwrap();
+        assert_eq!(app.only_feed, Some(1));
+        assert_eq!(app.visible_articles().len(), 5);
+        // Its name is not usable, only the number.
+        let mut app = loaded_app();
+        assert!(app.restrict_to_feed("https://b.example/feed").is_err());
     }
 
     #[test]
@@ -984,7 +1035,8 @@ mod tests {
         let mut app = loaded_app();
         let error = app.restrict_to_feed("gibtsnicht").unwrap_err();
         assert!(error.contains("gibtsnicht"), "got: {error}");
-        assert!(error.contains("Heise"), "got: {error}");
+        assert!(error.contains("1 = Heise"), "got: {error}");
+        assert!(error.contains("2 = (ohne Name)"), "got: {error}");
         // Nothing changed: the normal two-column view stays.
         assert_eq!(app.only_feed, None);
         assert!(app.shows_feed_column());

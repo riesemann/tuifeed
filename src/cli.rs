@@ -22,10 +22,10 @@ Aufruf:
   tuifeed [OPTIONEN]
 
 Optionen:
-  -f, --feed <NAME>   nur diesen Feed anzeigen (Name oder URL aus der Config),
-                      ohne Feed-Liste
-  -l, --list          die konfigurierten Feeds auflisten und beenden
-  -h, --help          diese Hilfe
+  -f, --feed <NR|NAME>   nur diesen Feed anzeigen (Nummer aus --list oder Name),
+                         ohne Feed-Liste
+  -l, --list             die konfigurierten Feeds auflisten und beenden
+  -h, --help             diese Hilfe
 ";
 
 /// Parse the arguments after the program name.

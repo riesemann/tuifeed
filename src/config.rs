@@ -219,6 +219,18 @@ pub struct Source {
     pub max: Option<usize>,
 }
 
+impl Source {
+    /// The name to show for this source; `(ohne Name)` when none is configured.
+    ///
+    /// Such a feed is addressed by its number (see [`Config::describe`]).
+    pub fn display_name(&self) -> String {
+        match &self.name {
+            Some(name) if !name.trim().is_empty() => name.clone(),
+            _ => "(ohne Name)".to_string(),
+        }
+    }
+}
+
 /// The whole configuration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -260,7 +272,7 @@ impl Config {
 
     /// A plain-text overview of the configured feeds (for `--list`).
     ///
-    /// One line per source: its name (or URL) and the URL, plus its own article cap.
+    /// One line per source: the number `--feed` accepts and its name.
     pub fn describe(&self) -> String {
         let mut out = String::new();
         match Self::path() {
@@ -274,19 +286,6 @@ impl Config {
             return out;
         }
 
-        let labels: Vec<String> = self
-            .sources
-            .iter()
-            .map(|source| match &source.name {
-                Some(name) if !name.trim().is_empty() => name.clone(),
-                _ => "(ohne Name)".to_string(),
-            })
-            .collect();
-        let width = labels
-            .iter()
-            .map(|label| label.chars().count())
-            .max()
-            .unwrap_or(0);
         out.push_str(&format!(
             "\n{} {}:\n\n",
             self.sources.len(),
@@ -297,19 +296,13 @@ impl Config {
             }
         ));
         for (index, source) in self.sources.iter().enumerate() {
-            out.push_str(&format!(
-                "  {:>2}. {:<width$}  {}",
-                index + 1,
-                labels[index],
-                source.url,
-                width = width
-            ));
+            out.push_str(&format!("  {:>2}. {}", index + 1, source.display_name()));
             if let Some(max) = source.max {
                 out.push_str(&format!("   (max {max})"));
             }
             out.push('\n');
         }
-        out.push_str("\nEinen davon direkt anzeigen:  tuifeed --feed <NAME|URL>\n");
+        out.push_str("\nEinen davon direkt anzeigen:  tuifeed --feed <NR|NAME>\n");
         out
     }
 
@@ -436,7 +429,7 @@ mod tests {
     }
 
     #[test]
-    fn describe_lists_every_source_with_url_and_cap() {
+    fn describe_lists_number_and_name_of_every_source() {
         let config = Config {
             sources: vec![
                 Source {
@@ -455,16 +448,11 @@ mod tests {
         let text = config.describe();
         assert!(text.contains("2 Feeds"), "got:\n{text}");
         assert!(text.contains("1. Heise"), "got:\n{text}");
-        assert!(text.contains("https://a.example/feed"), "got:\n{text}");
+        assert!(text.contains("2. (ohne Name)"), "got:\n{text}");
         assert!(text.contains("(max 50)"), "got:\n{text}");
-        // A source without a name is marked as such and still shows its URL — exactly once.
-        assert!(text.contains("(ohne Name)"), "got:\n{text}");
-        assert_eq!(
-            text.matches("https://b.example/feed").count(),
-            1,
-            "got:\n{text}"
-        );
-        assert!(text.contains("--feed"), "got:\n{text}");
+        // The URLs stay out of the list.
+        assert!(!text.contains("http"), "got:\n{text}");
+        assert!(text.contains("--feed <NR|NAME>"), "got:\n{text}");
     }
 
     #[test]
