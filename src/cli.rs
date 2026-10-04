@@ -8,6 +8,8 @@
 pub struct Options {
     /// Show only this feed (by configured name or URL) instead of the two-column view.
     pub feed: Option<String>,
+    /// Print the configured feeds and stop.
+    pub list: bool,
     /// The user asked for the usage text.
     pub help: bool,
 }
@@ -22,6 +24,7 @@ Aufruf:
 Optionen:
   -f, --feed <NAME>   nur diesen Feed anzeigen (Name oder URL aus der Config),
                       ohne Feed-Liste
+  -l, --list          die konfigurierten Feeds auflisten und beenden
   -h, --help          diese Hilfe
 ";
 
@@ -34,6 +37,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Options, String>
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => options.help = true,
+            "-l" | "--list" => options.list = true,
             "-f" | "--feed" => {
                 let value = args
                     .next()
@@ -73,11 +77,26 @@ mod tests {
     fn feed_accepts_both_spellings() {
         let expected = Options {
             feed: Some("Heise".to_string()),
+            list: false,
             help: false,
         };
         assert_eq!(parse_args(&["--feed", "Heise"]).unwrap(), expected);
         assert_eq!(parse_args(&["-f", "Heise"]).unwrap(), expected);
         assert_eq!(parse_args(&["--feed=Heise"]).unwrap(), expected);
+    }
+
+    #[test]
+    fn list_is_recognised() {
+        assert!(parse_args(&["-l"]).unwrap().list);
+        assert!(parse_args(&["--list"]).unwrap().list);
+        assert!(!parse_args(&[]).unwrap().list);
+    }
+
+    #[test]
+    fn list_and_feed_can_be_combined() {
+        let options = parse_args(&["-l", "-f", "Heise"]).unwrap();
+        assert!(options.list);
+        assert_eq!(options.feed.as_deref(), Some("Heise"));
     }
 
     #[test]

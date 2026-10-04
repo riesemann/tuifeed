@@ -40,6 +40,11 @@ fn main() -> Result<()> {
         print!("{}", cli::USAGE);
         return Ok(());
     }
+    // `--list` only reports the configured feeds; it starts no UI (and needs no fetch).
+    if options.list {
+        print!("{}", Config::load().describe());
+        return Ok(());
+    }
 
     if let Err(error) = Config::write_default_if_missing() {
         eprintln!("tuifeed: {error:#}");

@@ -258,6 +258,61 @@ impl Config {
         ProjectDirs::from("", "", "tuifeed").map(|dirs| dirs.config_dir().join("config.toml"))
     }
 
+    /// A plain-text overview of the configured feeds (for `--list`).
+    ///
+    /// One line per source: its name (or URL) and the URL, plus its own article cap.
+    pub fn describe(&self) -> String {
+        let mut out = String::new();
+        match Self::path() {
+            Some(path) => out.push_str(&format!("Konfiguration: {}\n", path.display())),
+            None => out.push_str("Konfiguration: (Pfad unbekannt)\n"),
+        }
+        if self.sources.is_empty() {
+            out.push_str(
+                "\nKeine Feeds konfiguriert.\n\nTrage sie in der Datei unter [[sources]] ein.\n",
+            );
+            return out;
+        }
+
+        let labels: Vec<String> = self
+            .sources
+            .iter()
+            .map(|source| match &source.name {
+                Some(name) if !name.trim().is_empty() => name.clone(),
+                _ => "(ohne Name)".to_string(),
+            })
+            .collect();
+        let width = labels
+            .iter()
+            .map(|label| label.chars().count())
+            .max()
+            .unwrap_or(0);
+        out.push_str(&format!(
+            "\n{} {}:\n\n",
+            self.sources.len(),
+            if self.sources.len() == 1 {
+                "Feed"
+            } else {
+                "Feeds"
+            }
+        ));
+        for (index, source) in self.sources.iter().enumerate() {
+            out.push_str(&format!(
+                "  {:>2}. {:<width$}  {}",
+                index + 1,
+                labels[index],
+                source.url,
+                width = width
+            ));
+            if let Some(max) = source.max {
+                out.push_str(&format!("   (max {max})"));
+            }
+            out.push('\n');
+        }
+        out.push_str("\nEinen davon direkt anzeigen:  tuifeed --feed <NAME|URL>\n");
+        out
+    }
+
     /// Load the configuration, falling back to defaults on any problem.
     ///
     /// A missing or unreadable file is not fatal: the program starts with the defaults.
@@ -378,6 +433,62 @@ mod tests {
         assert_eq!(config.colors, ColorMode::Auto);
         assert_eq!(config.max_articles, Config::DEFAULT_MAX_ARTICLES);
         assert!(config.sources.is_empty());
+    }
+
+    #[test]
+    fn describe_lists_every_source_with_url_and_cap() {
+        let config = Config {
+            sources: vec![
+                Source {
+                    name: Some("Heise".to_string()),
+                    url: "https://a.example/feed".to_string(),
+                    max: Some(50),
+                },
+                Source {
+                    name: None,
+                    url: "https://b.example/feed".to_string(),
+                    max: None,
+                },
+            ],
+            ..Config::default()
+        };
+        let text = config.describe();
+        assert!(text.contains("2 Feeds"), "got:\n{text}");
+        assert!(text.contains("1. Heise"), "got:\n{text}");
+        assert!(text.contains("https://a.example/feed"), "got:\n{text}");
+        assert!(text.contains("(max 50)"), "got:\n{text}");
+        // A source without a name is marked as such and still shows its URL — exactly once.
+        assert!(text.contains("(ohne Name)"), "got:\n{text}");
+        assert_eq!(
+            text.matches("https://b.example/feed").count(),
+            1,
+            "got:\n{text}"
+        );
+        assert!(text.contains("--feed"), "got:\n{text}");
+    }
+
+    #[test]
+    fn describe_uses_the_singular_for_a_single_feed() {
+        let config = Config {
+            sources: vec![Source {
+                name: Some("Heise".to_string()),
+                url: "https://a.example/feed".to_string(),
+                max: None,
+            }],
+            ..Config::default()
+        };
+        assert!(
+            config.describe().contains("1 Feed:"),
+            "{}",
+            config.describe()
+        );
+    }
+
+    #[test]
+    fn describe_says_when_nothing_is_configured() {
+        let text = Config::default().describe();
+        assert!(text.contains("Keine Feeds konfiguriert"), "got:\n{text}");
+        assert!(text.contains("[[sources]]"), "got:\n{text}");
     }
 
     #[test]
