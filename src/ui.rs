@@ -210,8 +210,18 @@ fn draw_articles(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
 
     let selected_start = starts.get(app.selected_article).copied().unwrap_or(0);
     let next_start = starts.get(app.selected_article + 1).copied();
-    let offset =
-        scroll_offset_with_next(selected_start, next_start, lines.len(), inner_height(area));
+    // The blank separator ends every article; the content stops one line before the next one.
+    let selected_end = match next_start {
+        Some(next) => next.saturating_sub(2),
+        None => lines.len().saturating_sub(2),
+    };
+    let offset = scroll_offset_with_next(
+        selected_start,
+        selected_end,
+        next_start,
+        lines.len(),
+        inner_height(area),
+    );
     let paragraph = Paragraph::new(Text::from(lines))
         .block(block)
         .style(Style::default().fg(theme.fg).bg(theme.bg))
@@ -431,6 +441,61 @@ mod tests {
         let selected_row = rows.iter().position(|row| row.contains("Titel-D")).unwrap() as u16;
         let theme = test_theme();
         assert_eq!(buffer[(36, selected_row)].bg, theme.selection_bg);
+    }
+
+    #[test]
+    fn the_last_article_is_rendered_completely() {
+        use crate::app::FeedUpdate;
+        use crate::config::{ColorMode, Config, Source};
+        use crate::feed::Feed;
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let config = Config {
+            colors: ColorMode::TrueColor,
+            sources: vec![Source {
+                name: Some("F".to_string()),
+                url: "https://example.org/feed".to_string(),
+            }],
+            ..Config::default()
+        };
+        let mut app = App::new(config);
+        app.apply_update(FeedUpdate {
+            index: 0,
+            result: Ok(Feed {
+                title: "F".to_string(),
+                articles: [
+                    "Titel-A", "Titel-B", "Titel-C", "Titel-D", "Titel-E", "Titel-F",
+                ]
+                .iter()
+                .map(|title| Article {
+                    title: (*title).to_string(),
+                    link: None,
+                    date: None,
+                    teaser: Some(format!("Teaser-{}", title.trim_start_matches("Titel-"))),
+                })
+                .collect(),
+            }),
+        });
+        app.open_selected_feed();
+        app.selected_article = 5; // the last article
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 10)).unwrap();
+        terminal.draw(|frame| draw(frame, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let rows: Vec<String> = (0..10)
+            .map(|y| (0..100).map(|x| buffer[(x, y)].symbol()).collect())
+            .collect();
+
+        // Both the heading *and* the teaser of the last article must be on screen.
+        assert!(
+            rows.iter().any(|row| row.contains("Titel-F")),
+            "the last heading must be visible: {rows:#?}"
+        );
+        assert!(
+            rows.iter().any(|row| row.contains("Teaser-F")),
+            "the last article must be shown in full, not just its heading: {rows:#?}"
+        );
     }
 
     #[test]

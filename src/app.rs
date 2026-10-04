@@ -391,14 +391,16 @@ pub fn scroll_offset(selected: usize, len: usize, height: usize) -> usize {
         .min(max_offset)
 }
 
-/// Like [`scroll_offset`], but keeps one line of the *next* article on screen.
+/// Like [`scroll_offset`], but shows the whole selected article where it fits.
 ///
-/// As long as another article follows the selected one, the highlighted entry never sits
-/// on the last visible row — it stays in the second-to-last spot, so the reader sees what
-/// comes next. On the last article (no `next_start`) the plain rule applies and the list
-/// scrolls to its end.
+/// `selected_start`/`selected_end` are the first and last *content* line of the highlighted
+/// article (the blank separator is not counted), `next_start` the first line of the article
+/// after it. As long as another article follows, at least its first line stays on screen —
+/// the highlighted entry sits in the second-to-last spot. The last article (no `next_start`)
+/// is shown in full whenever it fits, instead of only its heading at the bottom row.
 pub fn scroll_offset_with_next(
     selected_start: usize,
+    selected_end: usize,
     next_start: Option<usize>,
     len: usize,
     height: usize,
@@ -407,12 +409,23 @@ pub fn scroll_offset_with_next(
         return 0;
     }
     let max_offset = len.saturating_sub(height);
-    let mut offset = scroll_offset(selected_start, len, height);
-    if let Some(next) = next_start {
-        // Show at least the first line of the following article.
-        offset = offset.max(next.saturating_sub(height.saturating_sub(1)));
-    }
-    offset.min(selected_start).min(max_offset)
+    let block = selected_end.saturating_sub(selected_start) + 1;
+
+    let offset = if block >= height {
+        // Taller than the window: show it from its top, there is no way to show it all.
+        selected_start
+    } else {
+        // The block's end on the bottom row is the lowest offset that still shows it all;
+        // its start on the top row is the highest one.
+        let lowest = (selected_end + 1).saturating_sub(height);
+        let highest = selected_start;
+        let prefer = match next_start {
+            Some(next) => next.saturating_sub(height - 1),
+            None => lowest,
+        };
+        prefer.max(lowest).min(highest)
+    };
+    offset.min(max_offset)
 }
 
 #[cfg(test)]
@@ -767,17 +780,34 @@ mod tests {
 
     #[test]
     fn the_scroll_offset_leaves_room_for_the_next_article() {
-        // Four articles, three lines each (start 0, 3, 6, 9), window of six rows.
+        // Six articles, title plus blank (two lines each: start 0, 2, 4, 6, 8, 10), window of
+        // seven rows; the content of every article is a single line.
         // Selecting the first: the next article is already visible.
-        assert_eq!(scroll_offset_with_next(0, Some(3), 12, 6), 0);
-        // Selecting article 2: scroll so its first line of the *next* one shows at the bottom.
-        assert_eq!(scroll_offset_with_next(6, Some(9), 12, 6), 4);
-        // The last article has no successor: the plain rule applies (capped at the end).
-        assert_eq!(scroll_offset_with_next(9, None, 12, 6), 4);
-        // The selected article never scrolls off the top, however far the next one is.
-        assert_eq!(scroll_offset_with_next(2, Some(30), 40, 5), 2);
+        assert_eq!(scroll_offset_with_next(0, 0, Some(2), 12, 7), 0);
+        // Selecting article 4: its first line of the *next* one shows at the bottom row.
+        assert_eq!(scroll_offset_with_next(6, 6, Some(8), 12, 7), 2);
+        // The last article has no successor: its content stays fully in view.
+        assert_eq!(scroll_offset_with_next(10, 10, None, 12, 7), 4);
+    }
+
+    #[test]
+    fn the_last_article_is_shown_in_full_not_just_its_heading() {
+        // Four articles of title + teaser + blank (three lines each: start 0, 3, 6, 9), so the
+        // last one spans lines 9 and 10. A window of six rows must show both lines.
+        let offset = scroll_offset_with_next(9, 10, None, 12, 6);
+        assert_eq!(offset, 5);
+        assert!(
+            10 - offset < 6,
+            "the last content line must be inside the window (offset {offset})"
+        );
+    }
+
+    #[test]
+    fn an_article_taller_than_the_window_is_shown_from_its_top() {
+        // Seven content lines in a five-row window: only its start can be shown.
+        assert_eq!(scroll_offset_with_next(6, 12, Some(13), 20, 5), 6);
         // Degenerate window.
-        assert_eq!(scroll_offset_with_next(5, Some(6), 10, 0), 0);
+        assert_eq!(scroll_offset_with_next(5, 6, Some(7), 10, 0), 0);
     }
 
     #[test]

@@ -44,9 +44,11 @@ url = "https://www.heise.de/rss/heise-atom.xml"
 
 ## Scrollen in der Artikelspalte
 
-Solange unter dem hervorgehobenen Artikel noch weitere folgen, bleibt mindestens die erste
-Zeile des nächsten Artikels sichtbar — der Cursor sitzt also im vorletzten sichtbaren Platz
-und man sieht, was als Nächstes kommt. Erst beim letzten Artikel scrollt die Liste bis ans Ende.
+Der hervorgehobene Artikel wird möglichst **vollständig** gezeigt. Solange unter ihm noch weitere
+Artikel folgen, bleibt zusätzlich mindestens die erste Zeile des nächsten sichtbar — der Cursor
+sitzt also im vorletzten sichtbaren Platz und man sieht, was als Nächstes kommt. Beim **letzten**
+Artikel (kein Nachfolger) wird die restliche Höhe für seinen eigenen Text genutzt, damit Titel und
+Teaser sichtbar sind. Nur ein Artikel, der höher ist als die Spalte, wird von oben angeschnitten.
 
 ## Bauen und starten
 
