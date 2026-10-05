@@ -66,6 +66,7 @@ fn draw_help(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
         ),
         Line::from(""),
         Line::from("  ↑ / ↓            select an entry"),
+        Line::from("  PgUp / PgDown    page through the list"),
     ];
     if app.shows_feed_column() {
         lines.push(Line::from("  ← / → , Tab      switch column"));
@@ -152,6 +153,8 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
 /// The left column: one row per feed with its load state and cursor.
 fn draw_feeds(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     let focused = app.focus == Focus::Feeds;
+    // Remember the column height so `PageUp`/`PageDown` can page by one screen.
+    app.feed_page.set(inner_height(area).max(1));
     let rows: Vec<ListItem> = app
         .feeds
         .iter()
@@ -250,6 +253,9 @@ fn draw_articles(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
 
     let selected_start = starts.get(app.selected_article).copied().unwrap_or(0);
     let next_start = starts.get(app.selected_article + 1).copied();
+    // A page is the number of articles whose block begins within the first screen.
+    let per_page = starts.iter().take_while(|&&start| start < height).count();
+    app.article_page.set(per_page.max(1));
     // The blank separator ends every article; the content stops one line before the next one.
     let selected_end = match next_start {
         Some(next) => next.saturating_sub(2),
@@ -860,6 +866,50 @@ mod tests {
         // The footer help is a plain string; assert the two variants differ in "Tab".
         assert!(!crate::ui::footer_help(false).contains("Tab"));
         assert!(crate::ui::footer_help(true).contains("Tab"));
+    }
+
+    #[test]
+    fn drawing_records_the_page_sizes_for_paging() {
+        use crate::app::FeedUpdate;
+        use crate::config::{ColorMode, Config, Source};
+        use crate::feed::Feed;
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let config = Config {
+            colors: ColorMode::TrueColor,
+            sources: vec![Source {
+                name: Some("F".to_string()),
+                url: "https://example.org/feed".to_string(),
+                max: None,
+            }],
+            ..Config::default()
+        };
+        let mut app = App::new(config);
+        app.apply_update(FeedUpdate {
+            index: 0,
+            result: Ok(Feed {
+                title: "F".to_string(),
+                articles: (0..6)
+                    .map(|i| Article {
+                        title: format!("Titel-{i}"),
+                        link: None,
+                        date: None,
+                        teaser: None,
+                    })
+                    .collect(),
+            }),
+        });
+        app.open_selected_feed();
+
+        // 100x10: one footer row, 9 rows per column, 7 inside the borders.
+        let mut terminal = Terminal::new(TestBackend::new(100, 10)).unwrap();
+        terminal.draw(|frame| draw(frame, &app)).unwrap();
+
+        // One title line plus a blank per article: four fit into the seven inner rows.
+        assert_eq!(app.article_page.get(), 4);
+        // The feed column is the same height.
+        assert_eq!(app.feed_page.get(), 7);
     }
 
     #[test]

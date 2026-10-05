@@ -2,6 +2,8 @@
 
 use crossterm::event::{KeyCode, KeyModifiers};
 
+use std::cell::Cell;
+
 use crate::config::Config;
 use crate::feed::{Article, Feed};
 
@@ -101,6 +103,11 @@ pub struct App {
     /// When set, only this feed is shown: the feed column is hidden, the articles fill the
     /// window and the focus stays there (set by `--feed`).
     pub only_feed: Option<usize>,
+    /// How many rows the feed column showed last time it was drawn (`PageUp`/`PageDown`).
+    /// The UI writes it during `draw`, so paging matches the real screen height.
+    pub feed_page: Cell<usize>,
+    /// How many articles fit into the article column, as the UI last drew it.
+    pub article_page: Cell<usize>,
 }
 
 impl Default for App {
@@ -134,6 +141,8 @@ impl App {
             search: None,
             filter: String::new(),
             only_feed: None,
+            feed_page: Cell::new(1),
+            article_page: Cell::new(1),
         }
     }
 
@@ -430,6 +439,16 @@ impl App {
         }
     }
 
+    /// Move the cursor in the focused column by a full screen (`PageUp`/`PageDown`).
+    fn move_page(&mut self, direction: isize) {
+        let rows = match self.focus {
+            Focus::Feeds => self.feed_page.get(),
+            Focus::Articles => self.article_page.get(),
+        }
+        .max(1) as isize;
+        self.move_selection(direction * rows);
+    }
+
     /// Show the selected feed in the right column and move the focus there.
     pub fn open_selected_feed(&mut self) {
         if self.focus == Focus::Feeds && !self.feeds.is_empty() {
@@ -478,6 +497,8 @@ impl App {
             }
             KeyCode::Up => self.move_selection(-1),
             KeyCode::Down => self.move_selection(1),
+            KeyCode::PageUp => self.move_page(-1),
+            KeyCode::PageDown => self.move_page(1),
             KeyCode::Left => self.focus_feeds(),
             KeyCode::Right => self.focus_articles(),
             KeyCode::Enter => {
@@ -585,6 +606,20 @@ mod tests {
                     max: None,
                 },
             ],
+            ..Config::default()
+        }
+    }
+
+    /// A config with `count` plainly named sources (for feed-list paging tests).
+    fn config_with_feeds(count: usize) -> Config {
+        Config {
+            sources: (0..count)
+                .map(|index| Source {
+                    name: Some(format!("Feed {index}")),
+                    url: format!("https://{index}.example/feed"),
+                    max: None,
+                })
+                .collect(),
             ..Config::default()
         }
     }
@@ -726,6 +761,38 @@ mod tests {
         app.config.sources[0].max = Some(500);
         app.config.max_articles = 0;
         assert_eq!(app.status(), "2 feeds · 8 articles");
+    }
+
+    #[test]
+    fn page_up_down_move_by_a_full_screen() {
+        let mut app = loaded_app();
+        app.selected_feed = 1;
+        app.open_selected_feed(); // feed 1: 5 articles, focus is now the article column
+        app.article_page.set(2);
+        app.on_key(KeyCode::PageDown, KeyModifiers::NONE);
+        assert_eq!(app.selected_article, 2);
+        app.on_key(KeyCode::PageDown, KeyModifiers::NONE);
+        assert_eq!(app.selected_article, 4);
+        app.on_key(KeyCode::PageDown, KeyModifiers::NONE); // clamped at the end
+        assert_eq!(app.selected_article, 4);
+        app.on_key(KeyCode::PageUp, KeyModifiers::NONE);
+        assert_eq!(app.selected_article, 2);
+        app.on_key(KeyCode::PageUp, KeyModifiers::NONE);
+        assert_eq!(app.selected_article, 0);
+        app.on_key(KeyCode::PageUp, KeyModifiers::NONE); // stays at the top
+        assert_eq!(app.selected_article, 0);
+    }
+
+    #[test]
+    fn paging_the_feed_list_uses_the_feed_column_height() {
+        let mut app = App::new(config_with_feeds(5));
+        app.feed_page.set(2);
+        app.on_key(KeyCode::PageDown, KeyModifiers::NONE);
+        assert_eq!(app.selected_feed, 2);
+        app.on_key(KeyCode::PageDown, KeyModifiers::NONE);
+        assert_eq!(app.selected_feed, 4);
+        app.on_key(KeyCode::PageUp, KeyModifiers::NONE);
+        assert_eq!(app.selected_feed, 2);
     }
 
     #[test]
