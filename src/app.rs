@@ -118,7 +118,7 @@ impl Default for App {
 
 impl App {
     pub fn new(config: Config) -> Self {
-        let feeds = config
+        let feeds: Vec<FeedSlot> = config
             .sources
             .iter()
             .map(|source| FeedSlot {
@@ -127,6 +127,8 @@ impl App {
                 state: FeedState::Loading,
             })
             .collect();
+        // Show the first feed's articles right away; the focus stays on the feed list.
+        let open_feed = if feeds.is_empty() { None } else { Some(0) };
         Self {
             should_quit: false,
             reload: false,
@@ -135,7 +137,7 @@ impl App {
             feeds,
             selected_feed: 0,
             selected_article: 0,
-            open_feed: None,
+            open_feed,
             pending_open: None,
             show_help: false,
             search: None,
@@ -910,8 +912,21 @@ mod tests {
     }
 
     #[test]
-    fn without_an_open_feed_there_are_no_articles() {
+    fn the_first_feed_is_opened_on_start() {
+        // A configured feed shows its articles straight away (they appear once loaded) …
         let app = loaded_app();
+        assert_eq!(app.open_feed, Some(0));
+        assert_eq!(app.open_feed_label().as_deref(), Some("Heise"));
+        assert_eq!(app.visible_articles().len(), 3);
+        // … but the focus stays on the feed list, so ↓ keeps browsing feeds.
+        assert_eq!(app.focus, Focus::Feeds);
+    }
+
+    #[test]
+    fn without_a_configured_feed_there_are_no_articles() {
+        // No sources: nothing to open, nothing to show.
+        let app = App::new(Config::default());
+        assert_eq!(app.open_feed, None);
         assert!(app.visible_articles().is_empty());
         assert_eq!(app.open_feed_label(), None);
     }
