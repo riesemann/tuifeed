@@ -378,7 +378,11 @@ impl App {
             .iter()
             .filter(|slot| matches!(slot.state, FeedState::Failed(_)))
             .count();
-        let articles: usize = self.feeds.iter().map(|slot| slot.articles().len()).sum();
+        // The used count, capped per feed — the same number the feed column shows, so the
+        // footer never disagrees with the list beside it.
+        let articles: usize = (0..self.feeds.len())
+            .map(|index| self.shown_article_count(index))
+            .sum();
 
         if loading > 0 {
             format!("Loading feeds … ({loading} of {})", self.feeds.len())
@@ -706,6 +710,21 @@ mod tests {
     #[test]
     fn the_status_counts_feeds_and_articles() {
         let app = loaded_app();
+        assert_eq!(app.status(), "2 feeds · 8 articles");
+    }
+
+    #[test]
+    fn the_status_article_count_respects_the_caps() {
+        let mut app = loaded_app();
+        // Feed 0: its own `max`; feed 1: the global fallback. The footer must show the
+        // numbers the feed column shows, not the raw delivered ones.
+        app.config.sources[0].max = Some(2);
+        app.config.max_articles = 4;
+        assert_eq!(app.status(), "2 feeds · 6 articles");
+
+        // A cap never claims more than the feed delivers (5 delivered, `max` 500).
+        app.config.sources[0].max = Some(500);
+        app.config.max_articles = 0;
         assert_eq!(app.status(), "2 feeds · 8 articles");
     }
 
