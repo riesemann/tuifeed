@@ -4,6 +4,21 @@ All notable changes to tuifeed are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Mouse support: the wheel scrolls the focused column, a left click selects the row under the
+  pointer and focuses its column (opening stays on `Enter`). Mouse reporting is on; hold `Shift`
+  to select text with the terminal.
+- `PgUp` / `PgDn` page through the focused column.
+- The first configured feed opens on start, so its articles are visible without pressing `Enter`.
+
+### Fixed
+
+- The article count in the status line respects `max` / `max_articles` now and agrees with the
+  count in the feed column.
+
 ## [1.0.0] - 2026-10-04
 
 First release. Every milestone of the project's specification (M0–M6) is implemented, together with

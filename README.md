@@ -10,14 +10,20 @@ Version 1.0.0 — see [CHANGELOG.md](CHANGELOG.md) for what the release contains
 | Key | Effect |
 |---|---|
 | `↑` / `↓` | Select an entry in the focused column |
+| `PgUp` / `PgDn` | Page through the focused column |
 | `←` / `→` | Switch column (feeds ↔ articles) |
 | `Tab` / `Shift-Tab` | Switch column (feeds ↔ articles) |
 | `Enter` | Open a feed / open the article in the browser |
+| Mouse wheel | Scroll the focused column |
+| Mouse click | Select the row under the pointer and focus its column |
 | `r` | Reload the feeds |
 | `/` | Search articles: typing filters live, `Enter` commits, `Esc` discards |
 | `Esc` | Reset the filter (the whole article list comes back) |
 | `?` | Show/hide the key help |
 | `q` | Quit |
+
+The first configured feed opens on start, so its articles are there without an extra keypress.
+Mouse reporting is on; hold `Shift` while dragging to select text with the terminal.
 
 ## Configuration
 

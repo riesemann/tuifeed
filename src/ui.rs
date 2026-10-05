@@ -21,6 +21,11 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let depth = theme::depth_for(app.config.colors);
     let theme = theme::theme(app.config.theme, app.config.mode, depth);
 
+    // Record where the lists are drawn so a mouse click can be mapped back to a row.
+    app.feed_view.set((0, 0, 0, 0));
+    app.article_view.set((0, 0, 0, 0));
+    app.article_starts.borrow_mut().clear();
+
     // Paint the window background so light and dark themes actually differ.
     frame.render_widget(
         Block::default().style(Style::default().bg(theme.bg).fg(theme.fg)),
@@ -67,6 +72,7 @@ fn draw_help(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
         Line::from(""),
         Line::from("  ↑ / ↓            select an entry"),
         Line::from("  PgUp / PgDown    page through the list"),
+        Line::from("  wheel / click    scroll, select a row (focus the column)"),
     ];
     if app.shows_feed_column() {
         lines.push(Line::from("  ← / → , Tab      switch column"));
@@ -198,7 +204,11 @@ fn draw_feeds(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
         return;
     }
 
+    let inner = block.inner(area);
+    app.feed_view
+        .set((inner.x, inner.y, inner.width, inner.height));
     let offset = scroll_offset(app.selected_feed, rows.len(), inner_height(area));
+    app.feed_offset.set(offset);
     let visible = rows.into_iter().skip(offset);
     frame.render_widget(List::new(visible).block(block).style(list_style), area);
 }
@@ -263,6 +273,10 @@ fn draw_articles(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     };
     let total = lines.len();
     let offset = scroll_offset_with_next(selected_start, selected_end, next_start, total, height);
+    app.article_view
+        .set((inner.x, inner.y, inner.width, inner.height));
+    app.article_offset.set(offset);
+    *app.article_starts.borrow_mut() = starts;
     let paragraph = Paragraph::new(Text::from(lines))
         .block(block)
         .style(Style::default().fg(theme.fg).bg(theme.bg))
@@ -873,6 +887,7 @@ mod tests {
         use crate::app::FeedUpdate;
         use crate::config::{ColorMode, Config, Source};
         use crate::feed::Feed;
+        use crossterm::event::{MouseButton, MouseEventKind};
         use ratatui::Terminal;
         use ratatui::backend::TestBackend;
 
@@ -910,6 +925,14 @@ mod tests {
         assert_eq!(app.article_page.get(), 4);
         // The feed column is the same height.
         assert_eq!(app.feed_page.get(), 7);
+
+        // The geometry a click is mapped through is recorded as well.
+        assert_eq!(app.feed_view.get(), (1, 1, 33, 7));
+        assert_eq!(app.article_view.get(), (36, 1, 63, 7));
+        assert_eq!(app.article_starts.borrow().len(), 6);
+        // A click on the third article row (line 4) selects it.
+        app.on_mouse(MouseEventKind::Down(MouseButton::Left), 40, 5);
+        assert_eq!(app.selected_article, 2);
     }
 
     #[test]

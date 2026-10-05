@@ -1,11 +1,14 @@
 //! Application state and input handling.
 
-use crossterm::event::{KeyCode, KeyModifiers};
+use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 use crate::config::Config;
 use crate::feed::{Article, Feed};
+
+/// How many rows one wheel notch moves the cursor.
+const WHEEL_STEP: isize = 3;
 
 /// Which column currently holds keyboard focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +111,17 @@ pub struct App {
     pub feed_page: Cell<usize>,
     /// How many articles fit into the article column, as the UI last drew it.
     pub article_page: Cell<usize>,
+    /// The feed column's inner rectangle as last drawn `(x, y, width, height)`; zero while a
+    /// single feed is pinned (the column is hidden), so a click there hits nothing.
+    pub feed_view: Cell<(u16, u16, u16, u16)>,
+    /// The article column's inner rectangle as last drawn.
+    pub article_view: Cell<(u16, u16, u16, u16)>,
+    /// The feed list's scroll offset as last drawn (top visible row).
+    pub feed_offset: Cell<usize>,
+    /// The article list's scroll offset as last drawn (top visible line).
+    pub article_offset: Cell<usize>,
+    /// The line each visible article starts on, as last drawn.
+    pub article_starts: RefCell<Vec<usize>>,
 }
 
 impl Default for App {
@@ -145,6 +159,11 @@ impl App {
             only_feed: None,
             feed_page: Cell::new(1),
             article_page: Cell::new(1),
+            feed_view: Cell::new((0, 0, 0, 0)),
+            article_view: Cell::new((0, 0, 0, 0)),
+            feed_offset: Cell::new(0),
+            article_offset: Cell::new(0),
+            article_starts: RefCell::new(Vec::new()),
         }
     }
 
@@ -514,6 +533,50 @@ impl App {
             _ => {}
         }
     }
+
+    /// Handle a mouse event. The wheel scrolls the focused column; a left click focuses the
+    /// column under the pointer and selects the row there (opening stays on `Enter`).
+    pub fn on_mouse(&mut self, kind: MouseEventKind, x: u16, y: u16) {
+        match kind {
+            MouseEventKind::ScrollUp => self.move_selection(-WHEEL_STEP),
+            MouseEventKind::ScrollDown => self.move_selection(WHEEL_STEP),
+            MouseEventKind::Down(MouseButton::Left) => self.select_at(x, y),
+            _ => {}
+        }
+    }
+
+    /// Move the focus and the cursor to the row the pointer is on, if any.
+    fn select_at(&mut self, x: u16, y: u16) {
+        if let Some(index) = self.feed_row_at(x, y) {
+            self.focus = Focus::Feeds;
+            self.selected_feed = index;
+        } else if let Some(index) = self.article_row_at(x, y) {
+            self.focus = Focus::Articles;
+            self.selected_article = index;
+        }
+    }
+
+    /// The feed whose row contains `(x, y)`, using the geometry the UI last drew.
+    fn feed_row_at(&self, x: u16, y: u16) -> Option<usize> {
+        let (fx, fy, fw, fh) = self.feed_view.get();
+        if fw == 0 || !(fx..fx + fw).contains(&x) || !(fy..fy + fh).contains(&y) {
+            return None;
+        }
+        let row = self.feed_offset.get() + (y - fy) as usize;
+        (row < self.feeds.len()).then_some(row)
+    }
+
+    /// The article whose block contains the line under `(x, y)`, using the last drawn geometry.
+    fn article_row_at(&self, x: u16, y: u16) -> Option<usize> {
+        let (ax, ay, aw, ah) = self.article_view.get();
+        if aw == 0 || !(ax..ax + aw).contains(&x) || !(ay..ay + ah).contains(&y) {
+            return None;
+        }
+        let line = self.article_offset.get() + (y - ay) as usize;
+        let starts = self.article_starts.borrow();
+        // The last article that starts at or above the clicked line.
+        starts.iter().rposition(|start| *start <= line)
+    }
 }
 
 /// Whether an article matches the (lowercase) search needle.
@@ -795,6 +858,52 @@ mod tests {
         assert_eq!(app.selected_feed, 4);
         app.on_key(KeyCode::PageUp, KeyModifiers::NONE);
         assert_eq!(app.selected_feed, 2);
+    }
+
+    #[test]
+    fn a_click_on_a_feed_selects_it_and_focuses_the_column() {
+        let mut app = loaded_app();
+        app.focus = Focus::Articles;
+        app.feed_view.set((0, 1, 20, 5)); // inner rect (x, y, w, h): rows 1..6
+        app.feed_offset.set(0);
+        app.on_mouse(MouseEventKind::Down(MouseButton::Left), 3, 2); // the second feed row
+        assert_eq!(app.focus, Focus::Feeds);
+        assert_eq!(app.selected_feed, 1);
+    }
+
+    #[test]
+    fn a_click_on_an_article_selects_it_and_focuses_the_column() {
+        let mut app = loaded_app(); // feed 0 is open: three articles, one line plus a blank each
+        app.article_view.set((30, 1, 50, 7)); // rows 1..8
+        app.article_offset.set(0);
+        app.article_starts.borrow_mut().extend([0, 2, 4]);
+        // Line 4 is the third article's title (line = offset + y - 1).
+        app.on_mouse(MouseEventKind::Down(MouseButton::Left), 35, 5);
+        assert_eq!(app.focus, Focus::Articles);
+        assert_eq!(app.selected_article, 2);
+    }
+
+    #[test]
+    fn a_click_between_the_panes_changes_nothing() {
+        let mut app = loaded_app();
+        app.focus = Focus::Feeds;
+        app.selected_feed = 0;
+        app.feed_view.set((0, 1, 20, 5));
+        app.article_view.set((30, 1, 50, 7));
+        // x = 25 falls into the gap between the columns.
+        app.on_mouse(MouseEventKind::Down(MouseButton::Left), 25, 2);
+        assert_eq!(app.focus, Focus::Feeds);
+        assert_eq!(app.selected_feed, 0);
+    }
+
+    #[test]
+    fn the_wheel_scrolls_the_focused_column() {
+        let mut app = App::new(config_with_feeds(10));
+        app.focus = Focus::Feeds;
+        app.on_mouse(MouseEventKind::ScrollDown, 0, 0);
+        assert_eq!(app.selected_feed, 3); // one notch is WHEEL_STEP rows
+        app.on_mouse(MouseEventKind::ScrollUp, 0, 0);
+        assert_eq!(app.selected_feed, 0);
     }
 
     #[test]

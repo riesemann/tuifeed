@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use crossterm::{
-    event::{self, Event, KeyEventKind},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -75,18 +75,18 @@ fn main() -> Result<()> {
     result
 }
 
-/// Enter raw mode and the alternate screen.
+/// Enter raw mode, the alternate screen and mouse reporting.
 fn setup_terminal() -> Result<Tui> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     Ok(Terminal::new(CrosstermBackend::new(stdout))?)
 }
 
-/// Leave the alternate screen and raw mode.
+/// Leave the alternate screen, turn mouse reporting off and leave raw mode.
 fn restore_terminal() -> Result<()> {
     disable_raw_mode()?;
-    execute!(io::stdout(), LeaveAlternateScreen)?;
+    execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
     Ok(())
 }
 
@@ -107,11 +107,15 @@ fn run(terminal: &mut Tui, mut app: App) -> Result<()> {
         // Pick up whatever the background tasks have finished.
         drain_results(&rx, &mut app);
 
-        // Wait for a key (but wake up regularly to look for results).
-        if let Some(key) = poll_key(TICK)? {
-            // Windows reports both press and release; only act on press.
-            if key.kind == KeyEventKind::Press {
-                app.on_key(key.code, key.modifiers);
+        // Wait for an event (but wake up regularly to look for results).
+        if let Some(event) = poll_event(TICK)? {
+            match event {
+                // Windows reports both press and release; only act on press.
+                Event::Key(key) if key.kind == KeyEventKind::Press => {
+                    app.on_key(key.code, key.modifiers);
+                }
+                Event::Mouse(mouse) => app.on_mouse(mouse.kind, mouse.column, mouse.row),
+                _ => {}
             }
         }
 
@@ -135,15 +139,12 @@ fn open_in_browser(url: &str) {
     }
 }
 
-/// Wait up to `timeout` for a key event.
-fn poll_key(timeout: Duration) -> Result<Option<event::KeyEvent>> {
+/// Wait up to `timeout` for a terminal event.
+fn poll_event(timeout: Duration) -> Result<Option<Event>> {
     if !event::poll(timeout)? {
         return Ok(None);
     }
-    match event::read()? {
-        Event::Key(key) => Ok(Some(key)),
-        _ => Ok(None),
-    }
+    Ok(Some(event::read()?))
 }
 
 /// Mark all feeds as loading and fetch each of them in the background.
