@@ -101,6 +101,10 @@ fn run(terminal: &mut Tui, mut app: App) -> Result<()> {
 
     start_load(&runtime, &client, &mut app, &tx);
 
+    // Optional trace of every terminal event, enabled by `TUIFEED_EVENT_LOG=<path>`
+    // (diagnostics for "a key/click does nothing in my terminal").
+    let trace = std::env::var("TUIFEED_EVENT_LOG").ok();
+
     while !app.should_quit {
         terminal.draw(|frame| ui::draw(frame, &app))?;
 
@@ -109,6 +113,13 @@ fn run(terminal: &mut Tui, mut app: App) -> Result<()> {
 
         // Wait for an event (but wake up regularly to look for results).
         if let Some(event) = poll_event(TICK)? {
+            trace_event(
+                trace.as_deref(),
+                &format!(
+                    "event={event:?} before: focus={:?} sel_feed={} sel_art={}",
+                    app.focus, app.selected_feed, app.selected_article
+                ),
+            );
             match event {
                 // Windows reports both press and release; only act on press.
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
@@ -117,10 +128,23 @@ fn run(terminal: &mut Tui, mut app: App) -> Result<()> {
                 Event::Mouse(mouse) => app.on_mouse(mouse.kind, mouse.column, mouse.row),
                 _ => {}
             }
+            trace_event(
+                trace.as_deref(),
+                &format!(
+                    "  after: focus={:?} sel_feed={} sel_art={} pending={:?} feed_view={:?} article_view={:?}",
+                    app.focus,
+                    app.selected_feed,
+                    app.selected_article,
+                    app.pending_open,
+                    app.feed_view.get(),
+                    app.article_view.get()
+                ),
+            );
         }
 
         // Open the selected article in the browser, if the user asked for it.
         if let Some(url) = app.take_pending_open() {
+            trace_event(trace.as_deref(), &format!("OPEN {url}"));
             open_in_browser(&url);
         }
 
@@ -136,6 +160,21 @@ fn run(terminal: &mut Tui, mut app: App) -> Result<()> {
 fn open_in_browser(url: &str) {
     if let Err(error) = open::that(url) {
         eprintln!("tuifeed: could not open {url}: {error}");
+    }
+}
+
+/// Append one line to the event trace, if `TUIFEED_EVENT_LOG` points at a file.
+fn trace_event(path: Option<&str>, message: &str) {
+    use std::io::Write;
+    let Some(path) = path else {
+        return;
+    };
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(file, "{message}");
     }
 }
 
