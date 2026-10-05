@@ -4,15 +4,17 @@ All notable changes to tuifeed are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.1.0] - 2026-10-05
 
 ### Added
 
-- Mouse support: the wheel scrolls the focused column, a left click selects the row under the
-  pointer and focuses its column (opening stays on `Enter`). Mouse reporting is on; hold `Shift`
-  to select text with the terminal.
+- Mouse support: the wheel scrolls the focused column; a left click opens the feed or article under
+  the pointer (the same action as `Enter`). Mouse reporting is on; hold `Shift` to select text with
+  the terminal.
 - `PgUp` / `PgDn` page through the focused column.
 - The first configured feed opens on start, so its articles are visible without pressing `Enter`.
+- An optional event trace for diagnosing input problems: set `TUIFEED_EVENT_LOG=<path>` and every
+  terminal event is appended to that file.
 
 ### Fixed
 
@@ -68,4 +70,5 @@ the follow-up features, and the behaviour is covered by tests.
 - A wrong command line reports the problem on stderr and exits with code 2 — before the terminal is
   taken over, so the message stays readable.
 
+[1.1.0]: https://github.com/riesemann/tuifeed/releases/tag/v1.1.0
 [1.0.0]: https://github.com/riesemann/tuifeed/releases/tag/v1.0.0

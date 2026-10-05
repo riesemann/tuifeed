@@ -3,7 +3,7 @@
 RSS feeds and their articles in a terminal interface (TUI), written in Rust.
 Runs on Linux, macOS and Windows.
 
-Version 1.0.0 — see [CHANGELOG.md](CHANGELOG.md) for what the release contains.
+Version 1.1.0 — see [CHANGELOG.md](CHANGELOG.md) for what the release contains.
 
 ## Controls
 
@@ -15,7 +15,7 @@ Version 1.0.0 — see [CHANGELOG.md](CHANGELOG.md) for what the release contains
 | `Tab` / `Shift-Tab` | Switch column (feeds ↔ articles) |
 | `Enter` | Open a feed / open the article in the browser |
 | Mouse wheel | Scroll the focused column |
-| Mouse click | Select the row under the pointer and focus its column |
+| Mouse click | Open the feed / article under the pointer |
 | `r` | Reload the feeds |
 | `/` | Search articles: typing filters live, `Enter` commits, `Esc` discards |
 | `Esc` | Reset the filter (the whole article list comes back) |
@@ -132,6 +132,15 @@ python3 scripts/pty_run.py <XDG_CONFIG_HOME> ./target/debug/tuifeed 12 $'\x1b[B\
 
 Note: `Enter` in a pty is a CR (`\r`), not an LF (`\n`) — with `\n`, for example, an open search
 stays open and the final `q` types into the search instead of quitting.
+
+To see what a terminal actually sends for a key or a click (useful when input behaves differently in
+your terminal), set `TUIFEED_EVENT_LOG` and check the file afterwards:
+
+```
+TUIFEED_EVENT_LOG=/tmp/tuifeed-events.log cargo run
+```
+
+Every `Event::Key` / `Event::Mouse` is appended with the state before and after it is handled.
 
 ## License
 

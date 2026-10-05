@@ -1,6 +1,6 @@
 [package]
 name = "tuifeed"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2024"
 description = "RSS feeds and their articles in a terminal UI"
 license = "MIT"

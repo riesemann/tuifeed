@@ -534,25 +534,27 @@ impl App {
         }
     }
 
-    /// Handle a mouse event. The wheel scrolls the focused column; a left click focuses the
-    /// column under the pointer and selects the row there (opening stays on `Enter`).
+    /// Handle a mouse event. The wheel scrolls the focused column; a left click opens the
+    /// feed or article under the pointer (the same action as `Enter` on that row).
     pub fn on_mouse(&mut self, kind: MouseEventKind, x: u16, y: u16) {
         match kind {
             MouseEventKind::ScrollUp => self.move_selection(-WHEEL_STEP),
             MouseEventKind::ScrollDown => self.move_selection(WHEEL_STEP),
-            MouseEventKind::Down(MouseButton::Left) => self.select_at(x, y),
+            MouseEventKind::Down(MouseButton::Left) => self.click_at(x, y),
             _ => {}
         }
     }
 
-    /// Move the focus and the cursor to the row the pointer is on, if any.
-    fn select_at(&mut self, x: u16, y: u16) {
+    /// Select the row under the pointer and activate it, like `Enter` does.
+    fn click_at(&mut self, x: u16, y: u16) {
         if let Some(index) = self.feed_row_at(x, y) {
             self.focus = Focus::Feeds;
             self.selected_feed = index;
+            self.open_selected_feed();
         } else if let Some(index) = self.article_row_at(x, y) {
             self.focus = Focus::Articles;
             self.selected_article = index;
+            self.queue_open_selected_article();
         }
     }
 
@@ -861,18 +863,19 @@ mod tests {
     }
 
     #[test]
-    fn a_click_on_a_feed_selects_it_and_focuses_the_column() {
+    fn a_click_on_a_feed_opens_it_and_focuses_the_article_column() {
         let mut app = loaded_app();
         app.focus = Focus::Articles;
         app.feed_view.set((0, 1, 20, 5)); // inner rect (x, y, w, h): rows 1..6
         app.feed_offset.set(0);
         app.on_mouse(MouseEventKind::Down(MouseButton::Left), 3, 2); // the second feed row
-        assert_eq!(app.focus, Focus::Feeds);
         assert_eq!(app.selected_feed, 1);
+        assert_eq!(app.open_feed, Some(1), "a click opens the feed like Enter");
+        assert_eq!(app.focus, Focus::Articles);
     }
 
     #[test]
-    fn a_click_on_an_article_selects_it_and_focuses_the_column() {
+    fn a_click_on_an_article_opens_it() {
         let mut app = loaded_app(); // feed 0 is open: three articles, one line plus a blank each
         app.article_view.set((30, 1, 50, 7)); // rows 1..8
         app.article_offset.set(0);
@@ -881,6 +884,11 @@ mod tests {
         app.on_mouse(MouseEventKind::Down(MouseButton::Left), 35, 5);
         assert_eq!(app.focus, Focus::Articles);
         assert_eq!(app.selected_article, 2);
+        assert_eq!(
+            app.pending_open.as_deref(),
+            Some("https://example.org/2"),
+            "a click opens the article like Enter"
+        );
     }
 
     #[test]
@@ -894,6 +902,7 @@ mod tests {
         app.on_mouse(MouseEventKind::Down(MouseButton::Left), 25, 2);
         assert_eq!(app.focus, Focus::Feeds);
         assert_eq!(app.selected_feed, 0);
+        assert_eq!(app.pending_open, None);
     }
 
     #[test]

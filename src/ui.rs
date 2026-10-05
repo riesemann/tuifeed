@@ -72,7 +72,8 @@ fn draw_help(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
         Line::from(""),
         Line::from("  ↑ / ↓            select an entry"),
         Line::from("  PgUp / PgDown    page through the list"),
-        Line::from("  wheel / click    scroll, select a row (focus the column)"),
+        Line::from("  wheel            scroll the focused column"),
+        Line::from("  click            open the feed / article under the pointer"),
     ];
     if app.shows_feed_column() {
         lines.push(Line::from("  ← / → , Tab      switch column"));
@@ -930,7 +931,7 @@ mod tests {
         assert_eq!(app.feed_view.get(), (1, 1, 33, 7));
         assert_eq!(app.article_view.get(), (36, 1, 63, 7));
         assert_eq!(app.article_starts.borrow().len(), 6);
-        // A click on the third article row (line 4) selects it.
+        // A click on the third article row (line 4) selects it (its link is None here, so no open).
         app.on_mouse(MouseEventKind::Down(MouseButton::Left), 40, 5);
         assert_eq!(app.selected_article, 2);
     }
