@@ -4,6 +4,14 @@ All notable changes to tuifeed are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `[auto_update]` in the configuration: with `enabled = true` every feed is fetched again every
+  `interval_minutes` minutes (whole minutes, at least 1; off by default). `r` still reloads by hand
+  and restarts the interval, and the `?` overlay names the interval while the option is switched on.
+
 ## [1.1.0] - 2026-10-05
 
 ### Added
@@ -70,5 +78,6 @@ the follow-up features, and the behaviour is covered by tests.
 - A wrong command line reports the problem on stderr and exits with code 2 — before the terminal is
   taken over, so the message stays readable.
 
+[Unreleased]: https://github.com/riesemann/tuifeed/compare/v1.1.0...HEAD
 [1.1.0]: https://github.com/riesemann/tuifeed/releases/tag/v1.1.0
 [1.0.0]: https://github.com/riesemann/tuifeed/releases/tag/v1.0.0

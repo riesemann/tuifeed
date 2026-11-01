@@ -3,6 +3,7 @@
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 
 use std::cell::{Cell, RefCell};
+use std::time::Instant;
 
 use crate::config::Config;
 use crate::feed::{Article, Feed};
@@ -122,6 +123,8 @@ pub struct App {
     pub article_offset: Cell<usize>,
     /// The line each visible article starts on, as last drawn.
     pub article_starts: RefCell<Vec<usize>>,
+    /// When the feeds were last (re)loaded; the auto-update interval is counted from here.
+    last_refresh: Instant,
 }
 
 impl Default for App {
@@ -164,6 +167,7 @@ impl App {
             feed_offset: Cell::new(0),
             article_offset: Cell::new(0),
             article_starts: RefCell::new(Vec::new()),
+            last_refresh: Instant::now(),
         }
     }
 
@@ -235,6 +239,32 @@ impl App {
         for slot in &mut self.feeds {
             slot.state = FeedState::Loading;
         }
+    }
+
+    /// Ask for the feeds to be fetched again if the auto-update interval has passed.
+    ///
+    /// Called once per turn of the event loop with the current time; without
+    /// `[auto_update] enabled = true` it never does anything.
+    pub fn tick(&mut self, now: Instant) {
+        if !self.config.auto_update.enabled {
+            return;
+        }
+        if now.duration_since(self.last_refresh) >= self.config.auto_update.interval() {
+            self.reload = true;
+        }
+    }
+
+    /// Take a pending reload request and start the auto-update interval over.
+    ///
+    /// Returns whether a reload was pending; the caller then fetches every feed. Counting
+    /// from here means a manual `r` does not trigger a second refresh right afterwards.
+    pub fn take_reload(&mut self, now: Instant) -> bool {
+        if !self.reload {
+            return false;
+        }
+        self.reload = false;
+        self.last_refresh = now;
+        true
     }
 
     /// Store the result of a background fetch.
@@ -657,7 +687,8 @@ pub fn scroll_offset_with_next(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Source, ThemeName};
+    use crate::config::{AutoUpdate, Source, ThemeName};
+    use std::time::Duration;
 
     fn config_with_sources() -> Config {
         Config {
@@ -755,6 +786,82 @@ mod tests {
     fn r_asks_for_a_reload() {
         let mut app = App::default();
         app.on_key(KeyCode::Char('r'), KeyModifiers::NONE);
+        assert!(app.reload);
+    }
+
+    /// A configuration whose feeds are refreshed every `minutes` minutes.
+    fn auto_config(minutes: u64) -> Config {
+        Config {
+            auto_update: AutoUpdate {
+                enabled: true,
+                interval_minutes: minutes,
+            },
+            ..config_with_sources()
+        }
+    }
+
+    #[test]
+    fn without_the_option_nothing_refreshes_on_its_own() {
+        let mut app = App::default();
+        let start = Instant::now();
+        app.last_refresh = start;
+        app.tick(start + Duration::from_secs(24 * 60 * 60));
+        assert!(
+            !app.reload,
+            "auto-update is off by default: only `r` reloads"
+        );
+    }
+
+    #[test]
+    fn the_auto_update_reloads_once_the_interval_has_passed() {
+        let mut app = App::new(auto_config(1));
+        let start = Instant::now();
+        app.last_refresh = start;
+        app.tick(start + Duration::from_secs(59));
+        assert!(!app.reload, "not yet due");
+        app.tick(start + Duration::from_secs(60));
+        assert!(app.reload, "due after the configured minute");
+    }
+
+    #[test]
+    fn taking_a_reload_starts_the_interval_over() {
+        let mut app = App::new(auto_config(5));
+        let start = Instant::now();
+        app.last_refresh = start;
+        let due = start + Duration::from_secs(5 * 60);
+        app.tick(due);
+        assert!(app.take_reload(due));
+        assert!(!app.take_reload(due), "a reload is taken exactly once");
+        app.tick(due + Duration::from_secs(299));
+        assert!(!app.reload, "the count restarts at the reload");
+        app.tick(due + Duration::from_secs(300));
+        assert!(app.reload);
+    }
+
+    #[test]
+    fn a_manual_reload_restarts_the_auto_update_interval() {
+        let mut app = App::new(auto_config(5));
+        let start = Instant::now();
+        app.last_refresh = start;
+        // The user reloads by hand shortly before the automatic refresh would fire.
+        let manual = start + Duration::from_secs(299);
+        app.on_key(KeyCode::Char('r'), KeyModifiers::NONE);
+        assert!(app.take_reload(manual));
+        // No second fetch right afterwards: the next one is five minutes away.
+        app.tick(manual + Duration::from_secs(1));
+        assert!(!app.reload);
+        app.tick(manual + Duration::from_secs(300));
+        assert!(app.reload);
+    }
+
+    #[test]
+    fn an_interval_of_zero_minutes_is_clamped_to_one() {
+        let mut app = App::new(auto_config(0));
+        let start = Instant::now();
+        app.last_refresh = start;
+        app.tick(start + Duration::from_secs(59));
+        assert!(!app.reload, "zero means one minute, not a fetch every turn");
+        app.tick(start + Duration::from_secs(60));
         assert!(app.reload);
     }
 

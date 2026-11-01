@@ -2,6 +2,7 @@
 
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use directories::ProjectDirs;
@@ -206,6 +207,45 @@ impl Layout {
     }
 }
 
+/// Fetching every feed again on a timer.
+///
+/// Off by default: without it the feeds are loaded at start and only when the user presses `r`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AutoUpdate {
+    /// Whether the feeds are refreshed on their own.
+    pub enabled: bool,
+    /// How often, in minutes.
+    pub interval_minutes: u64,
+}
+
+impl AutoUpdate {
+    /// The shortest interval that can be configured, in minutes.
+    ///
+    /// A smaller value is clamped up: a refresh every few seconds would hammer the feeds and
+    /// the terminal.
+    pub const MIN_INTERVAL_MINUTES: u64 = 1;
+
+    /// The interval in minutes as it is actually used (never below the minimum).
+    pub fn effective_interval_minutes(&self) -> u64 {
+        self.interval_minutes.max(Self::MIN_INTERVAL_MINUTES)
+    }
+
+    /// The configured interval as a duration.
+    pub fn interval(&self) -> Duration {
+        Duration::from_secs(self.effective_interval_minutes() * 60)
+    }
+}
+
+impl Default for AutoUpdate {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval_minutes: 15,
+        }
+    }
+}
+
 /// One RSS feed to show.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Source {
@@ -241,6 +281,8 @@ pub struct Config {
     pub colors: ColorMode,
     /// Most articles to show per feed (`0` = all).
     pub max_articles: usize,
+    /// Refreshing all feeds on a timer (off by default).
+    pub auto_update: AutoUpdate,
     pub layout: Layout,
     pub sources: Vec<Source>,
 }
@@ -258,6 +300,7 @@ impl Default for Config {
             mode: Mode::DEFAULT,
             colors: ColorMode::DEFAULT,
             max_articles: Self::DEFAULT_MAX_ARTICLES,
+            auto_update: AutoUpdate::default(),
             layout: Layout::default(),
             sources: Vec::new(),
         }
@@ -376,6 +419,7 @@ impl Config {
     /// Clamp values that must stay in range so a saved file is always canonical.
     fn normalised(mut self) -> Self {
         self.layout.feeds_percent = self.layout.feeds();
+        self.auto_update.interval_minutes = self.auto_update.effective_interval_minutes();
         self
     }
 }
@@ -392,6 +436,12 @@ colors = "auto"
 
 # Most articles to show per feed (0 = all). A single feed can override it with `max`.
 max_articles = 0
+
+# Fetch all feeds again on a timer (off by default). `r` reloads by hand at any time.
+[auto_update]
+enabled = false
+# How often, in minutes (at least 1).
+interval_minutes = 15
 
 [layout]
 # Width of the left (feeds) column in percent; the right column takes the rest.
@@ -514,6 +564,10 @@ mod tests {
             mode: Mode::Light,
             colors: ColorMode::Ansi256,
             max_articles: 20,
+            auto_update: AutoUpdate {
+                enabled: true,
+                interval_minutes: 30,
+            },
             layout: Layout { feeds_percent: 40 },
             sources: vec![Source {
                 name: Some("Beispiel".to_string()),
@@ -574,6 +628,37 @@ url = "https://b.example/feed"
         assert_eq!(config.sources[0].max, None);
         assert_eq!(config.colors, ColorMode::Auto);
         assert_eq!(config.max_articles, 0);
+        // The template ships the auto-update section switched off.
+        assert!(!config.auto_update.enabled);
+        assert_eq!(config.auto_update.interval_minutes, 15);
+    }
+
+    #[test]
+    fn the_auto_update_section_is_read_from_the_file() {
+        let text = "[auto_update]\nenabled = true\ninterval_minutes = 5\n";
+        let config = Config::from_toml(text).unwrap();
+        assert!(config.auto_update.enabled);
+        assert_eq!(config.auto_update.interval_minutes, 5);
+        assert_eq!(
+            config.auto_update.interval(),
+            Duration::from_secs(5 * 60),
+            "the interval is minutes, not seconds"
+        );
+    }
+
+    #[test]
+    fn auto_update_is_off_by_default() {
+        let config = Config::default();
+        assert!(!config.auto_update.enabled);
+        assert_eq!(config.auto_update.interval_minutes, 15);
+    }
+
+    #[test]
+    fn an_interval_below_one_minute_is_clamped() {
+        let config =
+            Config::from_toml("[auto_update]\nenabled = true\ninterval_minutes = 0\n").unwrap();
+        assert_eq!(config.auto_update.interval_minutes, 1);
+        assert_eq!(config.auto_update.interval(), Duration::from_secs(60));
     }
 
     #[test]

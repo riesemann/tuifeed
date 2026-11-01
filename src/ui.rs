@@ -85,6 +85,12 @@ fn draw_help(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
             "  Enter            open the article in the browser",
         ));
     }
+    if app.config.auto_update.enabled {
+        lines.push(Line::from(format!(
+            "  auto-refresh     every {} min",
+            app.config.auto_update.effective_interval_minutes()
+        )));
+    }
     lines.extend([
         Line::from("  r                reload the feeds"),
         Line::from("  /                search articles (Enter applies, Esc cancels)"),
@@ -934,6 +940,58 @@ mod tests {
         // A click on the third article row (line 4) selects it (its link is None here, so no open).
         app.on_mouse(MouseEventKind::Down(MouseButton::Left), 40, 5);
         assert_eq!(app.selected_article, 2);
+    }
+
+    #[test]
+    fn the_help_names_the_auto_update_interval_when_it_is_switched_on() {
+        use crate::config::{AutoUpdate, ColorMode, Config, Source};
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let render = |config: Config| {
+            let mut app = App::new(config);
+            app.show_help = true;
+            let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+            terminal.draw(|frame| draw(frame, &app)).unwrap();
+            let buffer = terminal.backend().buffer().clone();
+            (0..30)
+                .map(|y| {
+                    (0..100)
+                        .map(|x| buffer[(x, y)].symbol())
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+
+        let source = Source {
+            name: Some("F".to_string()),
+            url: "https://example.org/feed".to_string(),
+            max: None,
+        };
+        let base = Config {
+            colors: ColorMode::TrueColor,
+            sources: vec![source.clone()],
+            ..Config::default()
+        };
+
+        // Off by default: the overlay stays as it was.
+        let off = render(base.clone());
+        assert!(
+            !off.contains("auto-refresh"),
+            "no auto-update line expected:\n{off}"
+        );
+
+        // Switched on, the interval is advertised (in minutes, as configured).
+        let on = render(Config {
+            auto_update: AutoUpdate {
+                enabled: true,
+                interval_minutes: 5,
+            },
+            ..base
+        });
+        assert!(on.contains("auto-refresh"), "got:\n{on}");
+        assert!(on.contains("every 5 min"), "got:\n{on}");
     }
 
     #[test]

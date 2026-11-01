@@ -2,7 +2,7 @@
 
 use std::io::{self, Stdout};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use crossterm::{
@@ -148,8 +148,11 @@ fn run(terminal: &mut Tui, mut app: App) -> Result<()> {
             open_in_browser(&url);
         }
 
-        if app.reload {
-            app.reload = false;
+        // Reload the feeds: on `r`, or on the auto-update timer when it is switched on.
+        let now = Instant::now();
+        app.tick(now);
+        if app.take_reload(now) {
+            trace_event(trace.as_deref(), "RELOAD");
             start_load(&runtime, &client, &mut app, &tx);
         }
     }

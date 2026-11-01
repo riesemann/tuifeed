@@ -36,6 +36,10 @@ mode = "dark"       # light | dark
 colors = "auto"     # auto | truecolor | 256 | 16
 max_articles = 0    # fallback for feeds without their own max (0 = all)
 
+[auto_update]
+enabled = false     # refresh all feeds on a timer
+interval_minutes = 15
+
 [layout]
 feeds_percent = 35  # width of the feed column, in percent
 
@@ -54,6 +58,29 @@ max = 30            # optional: articles for this feed (overrides max_articles, 
   The feed is cut from the **top**, so the newest articles stay (feed order). `0` = all.
 - The number in brackets in the feed column is the count that is **used**: the feed's own `max`,
   otherwise the delivered count (never more than the feed offers).
+- `[auto_update]`: see [Automatic refresh](#automatic-refresh) below.
+
+## Automatic refresh
+
+`[auto_update] enabled = true` fetches **every** configured feed again once `interval_minutes`
+minutes have passed (whole minutes, at least `1`; a smaller value is raised to one minute). The
+timer starts when the program starts, so the first automatic fetch happens one interval after the
+start, not immediately.
+
+```
+[auto_update]
+enabled = true
+interval_minutes = 30
+```
+
+- Off by default: without it the feeds are loaded at start and only when you press `r`.
+- `r` reloads by hand at any time and **restarts** the interval, so a manual reload is not followed
+  by a second fetch a moment later.
+- The refresh replaces the feeds' contents; the cursor, the open feed, the filter and the scroll
+  position stay where they are. While a refresh runs, the feed column and the status line show
+  `loading …` again — a feed that then fails keeps its reason and is named in the status line.
+- All feeds are refreshed, also while `--feed` pins a single one.
+- With auto-update switched on, `?` lists the interval (`auto-refresh  every 30 min`).
 
 ## Scrolling in the article column
 
