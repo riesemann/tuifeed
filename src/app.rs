@@ -6,7 +6,7 @@ use std::cell::{Cell, RefCell};
 use std::time::Instant;
 
 use crate::config::Config;
-use crate::feed::{Article, Feed};
+use crate::feed::{self, Article, Feed};
 
 /// How many rows one wheel notch moves the cursor.
 const WHEEL_STEP: isize = 3;
@@ -98,6 +98,8 @@ pub struct App {
     pub open_feed: Option<usize>,
     /// An address the user asked to open in the browser (taken by the main loop).
     pub pending_open: Option<String>,
+    /// A short notice shown in the footer instead of the key help, until the next keypress.
+    pub message: Option<String>,
     /// Whether the key help overlay is shown.
     pub show_help: bool,
     /// The text being typed while the search is open (`None` = not searching).
@@ -156,6 +158,7 @@ impl App {
             selected_article: 0,
             open_feed,
             pending_open: None,
+            message: None,
             show_help: false,
             search: None,
             filter: String::new(),
@@ -511,15 +514,30 @@ impl App {
 
     /// Ask for the selected article's address to be opened in the browser.
     ///
-    /// Does nothing if there is no open feed, no article, or the article has no link.
+    /// Does nothing if there is no open feed, no article, or the article has no link. A link that
+    /// is not an `http`/`https` address (see [`crate::feed::is_openable`]) is refused with a
+    /// notice in the footer: feed content is untrusted and must not reach the opener as a
+    /// different scheme or as an option.
     pub fn queue_open_selected_article(&mut self) {
-        if let Some(link) = self
+        let Some(link) = self
             .visible_articles()
             .get(self.selected_article)
             .and_then(|article| article.link.clone())
-        {
+        else {
+            return;
+        };
+        if feed::is_openable(&link) {
             self.pending_open = Some(link);
+        } else {
+            self.report(format!(
+                "Refused to open a link that is not http(s): {link}"
+            ));
         }
+    }
+
+    /// Show a notice in the footer until the next keypress.
+    pub fn report(&mut self, message: impl Into<String>) {
+        self.message = Some(message.into());
     }
 
     /// Take a pending browser request, if any.
@@ -529,6 +547,8 @@ impl App {
 
     /// Handle a key press.
     pub fn on_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
+        // A notice is about what just happened; the next keypress makes room for the key help.
+        self.message = None;
         // While the search is open, keys type into it.
         if self.search.is_some() {
             self.on_search_key(code);
@@ -1107,6 +1127,80 @@ mod tests {
             Some("https://example.org/0")
         );
         assert_eq!(app.take_pending_open(), None);
+    }
+
+    #[test]
+    fn a_link_that_is_not_http_is_refused_with_a_notice() {
+        let mut app = App::new(config_with_sources());
+        app.apply_update(FeedUpdate {
+            index: 0,
+            result: Ok(Feed {
+                title: "F".to_string(),
+                articles: vec![
+                    Article {
+                        title: "Ok".to_string(),
+                        link: Some("https://example.org/a".to_string()),
+                        date: None,
+                        teaser: None,
+                    },
+                    Article {
+                        title: "Lokal".to_string(),
+                        link: Some("file:///etc/passwd".to_string()),
+                        date: None,
+                        teaser: None,
+                    },
+                    Article {
+                        title: "Flag".to_string(),
+                        link: Some("-x".to_string()),
+                        date: None,
+                        teaser: None,
+                    },
+                ],
+            }),
+        });
+        app.open_selected_feed();
+
+        // An http(s) address is handed over as before.
+        app.selected_article = 0;
+        app.queue_open_selected_article();
+        assert_eq!(app.pending_open.as_deref(), Some("https://example.org/a"));
+
+        // A local file is not opened; the notice names what was refused.
+        app.take_pending_open();
+        app.selected_article = 1;
+        app.queue_open_selected_article();
+        assert_eq!(app.pending_open, None);
+        assert!(
+            app.message
+                .as_deref()
+                .is_some_and(|message| message.contains("file:///etc/passwd")),
+            "got: {:?}",
+            app.message
+        );
+
+        // Neither is a value that the opener would read as an option.
+        app.selected_article = 2;
+        app.queue_open_selected_article();
+        assert_eq!(app.pending_open, None);
+        assert!(
+            app.message
+                .as_deref()
+                .is_some_and(|message| message.ends_with("-x")),
+            "got: {:?}",
+            app.message
+        );
+    }
+
+    #[test]
+    fn the_next_keypress_clears_a_notice() {
+        let mut app = loaded_app();
+        app.report("something happened");
+        assert!(app.message.is_some());
+        app.on_key(KeyCode::Down, KeyModifiers::NONE);
+        assert_eq!(
+            app.message, None,
+            "a notice is about the moment it happened"
+        );
     }
 
     #[test]

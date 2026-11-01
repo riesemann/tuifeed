@@ -4,6 +4,23 @@ All notable changes to tuifeed are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- An article's link is only handed to the browser when it is an `http`/`https` address. Feed content
+  is untrusted: another scheme (`file:`, `smb:`, …) would reach whatever handler is registered for
+  it, and a value like `-x` would arrive at the opener as an option instead of a URL.
+- A feed body larger than 10 MiB is refused instead of being read into memory.
+
+### Fixed
+
+- The feed column's error marker still read `⚠ Fehler`; it is `⚠ Error` now.
+- A browser that could not be started is reported in the footer instead of on stderr, where the
+  alternate screen hid it. The same line now carries the refusal of a link that is not `http`/`https`.
+- The per-feed `eprintln!` on a failed fetch is gone: it was invisible under the alternate screen,
+  and the reason is already shown in the feed column, the article pane and the status line.
+
 ## [1.2.0] - 2026-11-01
 
 ### Added
@@ -80,6 +97,7 @@ the follow-up features, and the behaviour is covered by tests.
 - A wrong command line reports the problem on stderr and exits with code 2 — before the terminal is
   taken over, so the message stays readable.
 
+[Unreleased]: https://github.com/riesemann/tuifeed/compare/v1.2.0...HEAD
 [1.2.0]: https://github.com/riesemann/tuifeed/releases/tag/v1.2.0
 [1.1.0]: https://github.com/riesemann/tuifeed/releases/tag/v1.1.0
 [1.0.0]: https://github.com/riesemann/tuifeed/releases/tag/v1.0.0

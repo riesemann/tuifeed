@@ -133,12 +133,22 @@ pub fn footer_help(shows_feed_column: bool) -> &'static str {
     }
 }
 
-/// The bottom line: the search prompt, or the key help and the status.
+/// The bottom line: the search prompt, or a notice, or the key help and the status.
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
     if let Some(text) = &app.search {
         let prompt = format!(" Search: {text}_      (Enter applies · Esc cancels)");
         frame.render_widget(
             Paragraph::new(prompt).style(Style::default().fg(theme.title).bg(theme.bg)),
+            area,
+        );
+        return;
+    }
+
+    // A notice takes the whole line: it is the message the user has to read, and it needs the
+    // width the key help and the status would split between them.
+    if let Some(text) = &app.message {
+        frame.render_widget(
+            Paragraph::new(format!(" {text}")).style(Style::default().fg(theme.error).bg(theme.bg)),
             area,
         );
         return;
@@ -185,7 +195,7 @@ fn draw_feeds(frame: &mut Frame, area: Rect, app: &App, theme: &Theme) {
                 ]),
                 FeedState::Failed(_) => Line::from(vec![
                     Span::raw(slot.label()),
-                    Span::raw("  ⚠ Fehler").style(Style::default().fg(theme.error)),
+                    Span::raw("  ⚠ Error").style(Style::default().fg(theme.error)),
                 ]),
             };
             let selected = index == app.selected_feed;
@@ -992,6 +1002,93 @@ mod tests {
         });
         assert!(on.contains("auto-refresh"), "got:\n{on}");
         assert!(on.contains("every 5 min"), "got:\n{on}");
+    }
+
+    #[test]
+    fn a_notice_takes_the_whole_footer_line() {
+        use crate::config::{ColorMode, Config, Source};
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let config = Config {
+            colors: ColorMode::TrueColor,
+            sources: vec![Source {
+                name: Some("F".to_string()),
+                url: "https://example.org/feed".to_string(),
+                max: None,
+            }],
+            ..Config::default()
+        };
+        let mut app = App::new(config);
+        let screen = |app: &App| {
+            let mut terminal = Terminal::new(TestBackend::new(100, 10)).unwrap();
+            terminal.draw(|frame| draw(frame, app)).unwrap();
+            let buffer = terminal.backend().buffer().clone();
+            (0..10)
+                .map(|y| {
+                    (0..100)
+                        .map(|x| buffer[(x, y)].symbol())
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+
+        // Without a notice the footer carries the key help.
+        let before = screen(&app);
+        assert!(
+            before.contains("quit"),
+            "the key help is the default:\n{before}"
+        );
+
+        // With one, the notice is what the user has to read: it uses the whole line.
+        app.report("Could not open the browser");
+        let after = screen(&app);
+        assert!(
+            after.contains("Could not open the browser"),
+            "got:\n{after}"
+        );
+        assert!(
+            !after.contains("quit"),
+            "the notice replaces the key help:\n{after}"
+        );
+    }
+
+    #[test]
+    fn a_failed_feed_is_marked_in_english() {
+        use crate::app::FeedUpdate;
+        use crate::config::{ColorMode, Config, Source};
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let config = Config {
+            colors: ColorMode::TrueColor,
+            sources: vec![Source {
+                name: Some("F".to_string()),
+                url: "https://example.org/feed".to_string(),
+                max: None,
+            }],
+            ..Config::default()
+        };
+        let mut app = App::new(config);
+        app.apply_update(FeedUpdate {
+            index: 0,
+            result: Err("HTTP 500".to_string()),
+        });
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 10)).unwrap();
+        terminal.draw(|frame| draw(frame, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let rows: Vec<String> = (0..10)
+            .map(|y| (0..100).map(|x| buffer[(x, y)].symbol()).collect())
+            .collect();
+        let screen = rows.join("\n");
+
+        assert!(screen.contains("⚠ Error"), "got:\n{screen}");
+        assert!(
+            !screen.contains("Fehler"),
+            "the interface is English throughout:\n{screen}"
+        );
     }
 
     #[test]

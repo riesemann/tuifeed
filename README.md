@@ -4,6 +4,7 @@ RSS feeds and their articles in a terminal interface (TUI), written in Rust.
 Runs on Linux, macOS and Windows.
 
 **Version 1.2.0** — see [CHANGELOG.md](CHANGELOG.md) for what each release contains.
+Built with AI assistance — see [How this was built](#how-this-was-built).
 
 ## Quick start
 
@@ -41,6 +42,12 @@ tuifeed
 
 The first configured feed opens on start, so its articles are there without an extra keypress.
 Mouse reporting is on; hold `Shift` while dragging to select text with the terminal.
+
+`Enter` hands an article's address to the system's browser only when it is an `http` or `https`
+address. Feed content is untrusted: a link with another scheme (`file:`, `smb:`, …) would reach
+whatever program is registered for that scheme, and a value like `-x` would arrive at the opener as
+an option instead of a URL. Such a link is refused, and the footer says so until the next keypress —
+as does a browser that cannot be started. The same line carries a failed feed.
 
 ## Configuration
 
@@ -208,6 +215,14 @@ TUIFEED_EVENT_LOG=/tmp/tuifeed-events.log cargo run
 ```
 
 Every `Event::Key` / `Event::Mouse` is appended with the state before and after it is handled.
+
+## How this was built
+
+tuifeed is developed with AI assistance: the code, the tests and this documentation are written in
+pairing sessions with an AI coding agent (Hermes Agent by Nous Research) and reviewed by the
+maintainer. Nothing ships on the agent's word alone — every change passes `cargo fmt`,
+`cargo build`, `cargo test` and `cargo clippy --all-targets`, the feed parsers are tested against
+recorded real payloads, and the running interface is looked at by a human before a release.
 
 ## License
 

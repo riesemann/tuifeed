@@ -26,20 +26,65 @@ pub struct Feed {
     pub articles: Vec<Article>,
 }
 
-/// Download the raw bytes of a feed.
+/// The largest feed body that is read, in bytes.
+///
+/// A feed is fetched from a server the user does not control, so the download is bounded: a
+/// hostile or broken feed that answers with gigabytes must not exhaust the program's memory.
+pub const MAX_BYTES: usize = 10 * 1024 * 1024;
+
+/// Whether an address from a feed may be handed to the system's browser.
+///
+/// Feed content is untrusted, so the opener only ever sees `http`/`https` addresses. Anything
+/// else is refused — another scheme (`file:`, `smb:`, …) would hand the URI to whatever handler
+/// is registered for it, and a value like `-x` would reach `xdg-open` as an option instead of a
+/// URL.
+pub fn is_openable(url: &str) -> bool {
+    let url = url.trim().to_ascii_lowercase();
+    url.starts_with("http://") || url.starts_with("https://")
+}
+
+/// Download the raw bytes of a feed, refusing a body above [`MAX_BYTES`].
 pub async fn fetch_bytes(client: &reqwest::Client, url: &str) -> Result<Vec<u8>> {
-    let response = client
+    let mut response = client
         .get(url)
         .send()
         .await
         .with_context(|| format!("could not reach {url}"))?
         .error_for_status()
         .with_context(|| format!("{url} answered with an error"))?;
-    let bytes = response
-        .bytes()
+
+    // Refuse a body that announces itself as too large before reading it.
+    if let Some(length) = response.content_length()
+        && length > MAX_BYTES as u64
+    {
+        return Err(too_large(url, length as usize));
+    }
+
+    let mut body: Vec<u8> = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
         .await
-        .with_context(|| format!("could not read the body of {url}"))?;
-    Ok(bytes.to_vec())
+        .with_context(|| format!("could not read the body of {url}"))?
+    {
+        extend_within_limit(&mut body, &chunk).with_context(|| format!("while reading {url}"))?;
+    }
+    Ok(body)
+}
+
+/// Append `chunk`, failing once the total would exceed [`MAX_BYTES`].
+fn extend_within_limit(buffer: &mut Vec<u8>, chunk: &[u8]) -> Result<()> {
+    if buffer.len() + chunk.len() > MAX_BYTES {
+        return Err(too_large("the feed", buffer.len() + chunk.len()));
+    }
+    buffer.extend_from_slice(chunk);
+    Ok(())
+}
+
+fn too_large(what: &str, bytes: usize) -> anyhow::Error {
+    anyhow::anyhow!(
+        "{what} is larger than the {} MiB limit ({bytes} bytes)",
+        MAX_BYTES / (1024 * 1024)
+    )
 }
 
 /// Download and parse a feed.
@@ -203,5 +248,41 @@ mod tests {
     #[test]
     fn broken_input_is_an_error_not_a_silent_empty_feed() {
         assert!(parse_feed(b"this is not a feed").is_err());
+    }
+
+    #[test]
+    fn only_http_addresses_may_be_opened() {
+        // What a feed legitimately links to.
+        assert!(is_openable("https://example.org/article"));
+        assert!(is_openable("http://example.org/article"));
+        assert!(is_openable("  HTTPS://EXAMPLE.ORG/x  ")); // trimmed, case-insensitive
+
+        // Everything else stays with the program: another scheme would hand the URI to a
+        // different handler, and a leading dash would reach the opener as an option.
+        assert!(!is_openable("file:///etc/passwd"));
+        assert!(!is_openable("smb://attacker.example/share"));
+        assert!(!is_openable("javascript:alert(1)"));
+        assert!(!is_openable("mailto:someone@example.org"));
+        assert!(!is_openable("-x"));
+        assert!(!is_openable("--version"));
+        assert!(!is_openable(""));
+        assert!(!is_openable("example.org/no-scheme"));
+    }
+
+    #[test]
+    fn a_body_above_the_limit_is_refused() {
+        let mut buffer = Vec::new();
+        extend_within_limit(&mut buffer, &vec![b'a'; MAX_BYTES]).unwrap();
+        assert_eq!(buffer.len(), MAX_BYTES);
+
+        // One byte more must fail, and the buffer must stay as it was.
+        let error = extend_within_limit(&mut buffer, b"x").unwrap_err();
+        assert!(error.to_string().contains("10 MiB"), "got: {error}");
+        assert_eq!(buffer.len(), MAX_BYTES);
+
+        // A fresh buffer accepts a small chunk.
+        let mut small = Vec::new();
+        extend_within_limit(&mut small, b"hello").unwrap();
+        assert_eq!(small, b"hello");
     }
 }

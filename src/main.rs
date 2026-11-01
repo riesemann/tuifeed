@@ -145,7 +145,11 @@ fn run(terminal: &mut Tui, mut app: App) -> Result<()> {
         // Open the selected article in the browser, if the user asked for it.
         if let Some(url) = app.take_pending_open() {
             trace_event(trace.as_deref(), &format!("OPEN {url}"));
-            open_in_browser(&url);
+            if let Err(error) = open::that(&url) {
+                trace_event(trace.as_deref(), &format!("OPEN FAILED {error}"));
+                // stderr is hidden under the alternate screen, so the user is told in the footer.
+                app.report(format!("Could not open the browser: {error}"));
+            }
         }
 
         // Reload the feeds: on `r`, or on the auto-update timer when it is switched on.
@@ -157,13 +161,6 @@ fn run(terminal: &mut Tui, mut app: App) -> Result<()> {
         }
     }
     Ok(())
-}
-
-/// Hand an address to the system's default browser.
-fn open_in_browser(url: &str) {
-    if let Err(error) = open::that(url) {
-        eprintln!("tuifeed: could not open {url}: {error}");
-    }
 }
 
 /// Append one line to the event trace, if `TUIFEED_EVENT_LOG` points at a file.
@@ -207,10 +204,10 @@ fn start_load(runtime: &Runtime, client: &reqwest::Client, app: &mut App, tx: &S
 
 /// Take every finished fetch out of the channel and store it.
 fn drain_results(rx: &Receiver<FeedUpdate>, app: &mut App) {
+    // A failure is not printed here: stderr is hidden under the alternate screen, and the reason
+    // travels in `FeedState::Failed`, which the feed column, the article pane and the status line
+    // all show.
     while let Ok(update) = rx.try_recv() {
-        if let Err(error) = &update.result {
-            eprintln!("tuifeed: feed {} failed: {error}", update.index);
-        }
         app.apply_update(update);
     }
 }
