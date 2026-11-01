@@ -192,6 +192,9 @@ cargo test
 cargo clippy --all-targets
 ```
 
+The parsers are tested against recorded payloads rather than hand-written examples — see
+[`fixtures/README.md`](fixtures/README.md) for where they come from and how to replace one.
+
 ### Checking a run without a screen
 
 `scripts/pty_run.py` starts the binary in a pty of a fixed size (100×30), sends a key sequence after
