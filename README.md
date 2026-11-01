@@ -3,7 +3,7 @@
 RSS feeds and their articles in a terminal interface (TUI), written in Rust.
 Runs on Linux, macOS and Windows.
 
-**Version 1.2.0** — see [CHANGELOG.md](CHANGELOG.md) for what each release contains.
+**Version 1.2.1** — see [CHANGELOG.md](CHANGELOG.md) for what each release contains.
 Built with AI assistance — see [How this was built](#how-this-was-built).
 
 ## Quick start

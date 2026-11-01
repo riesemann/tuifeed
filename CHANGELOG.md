@@ -4,7 +4,7 @@ All notable changes to tuifeed are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.1] - 2026-11-01
 
 ### Security
 
@@ -97,7 +97,7 @@ the follow-up features, and the behaviour is covered by tests.
 - A wrong command line reports the problem on stderr and exits with code 2 — before the terminal is
   taken over, so the message stays readable.
 
-[Unreleased]: https://github.com/riesemann/tuifeed/compare/v1.2.0...HEAD
+[1.2.1]: https://github.com/riesemann/tuifeed/releases/tag/v1.2.1
 [1.2.0]: https://github.com/riesemann/tuifeed/releases/tag/v1.2.0
 [1.1.0]: https://github.com/riesemann/tuifeed/releases/tag/v1.1.0
 [1.0.0]: https://github.com/riesemann/tuifeed/releases/tag/v1.0.0
