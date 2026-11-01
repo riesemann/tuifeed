@@ -6,6 +6,8 @@ Runs on Linux, macOS and Windows.
 **Version 1.2.1** — see [CHANGELOG.md](CHANGELOG.md) for what each release contains.
 Built with AI assistance — see [How this was built](#how-this-was-built).
 
+![tuifeed: the configured feeds on the left, the articles of the opened feed on the right](assets/screenshot.png)
+
 ## Quick start
 
 Install from a clone of this repository:
