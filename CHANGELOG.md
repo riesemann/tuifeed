@@ -4,6 +4,23 @@ All notable changes to tuifeed are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- `rustls` is at 0.23.46, which clears the four Dependabot advisories that were open against 0.23.45:
+  the `Debug` formatting of a session printed the TLS master secrets and the resumption PSKs (medium);
+  a rejected ECH handshake could expose buffered application data to an authenticated outer server; an
+  unauthenticated ServerHello poisoned the per-name key-exchange record, so later ClientHellos carried
+  only a classical X25519 share; and Brotli certificate decompression could allocate up to 1 GiB before
+  authentication (low).
+
+### Changed
+
+- Dependencies refreshed: `tokio` 1.54.1, `open` 5.4.5, `toml` 1.2.1 and the transitive tree below
+  them (`hyper`, `aws-lc-rs`, `pest`, `uuid`, …) — 72 entries of `Cargo.lock` move in all. No
+  behaviour of the app is meant to change.
+
 ## [1.2.1] - 2026-11-01
 
 ### Security
